@@ -32,12 +32,9 @@ fun SettingsScreen(repository: FinanceRepository) {
 
     // Load configurations from Repository
     val (tlId, tlSecret) = remember { repository.getTrueLayerCredentials() }
-    val (ghOwner, ghRepo) = remember { repository.getGitHubSettings() }
 
     var truelayerId by remember { mutableStateOf(tlId) }
     var truelayerSecret by remember { mutableStateOf(tlSecret) }
-    var githubOwner by remember { mutableStateOf(ghOwner) }
-    var githubRepo by remember { mutableStateOf(ghRepo) }
 
     // Updater states
     var updateStatus by remember { mutableStateOf("") }
@@ -47,8 +44,8 @@ fun SettingsScreen(repository: FinanceRepository) {
     var latestAssetName by remember { mutableStateOf<String?>(null) }
 
     val client = remember { OkHttpClient() }
-    val updater = remember(githubOwner, githubRepo) {
-        AppUpdater(context, client, githubOwner, githubRepo)
+    val updater = remember {
+        AppUpdater(context, client, "chrisurwin", "android-finance-app")
     }
 
     Column(
@@ -118,27 +115,11 @@ fun SettingsScreen(repository: FinanceRepository) {
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("App Updates (GitHub Integration)", fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text("App Updates", fontWeight = FontWeight.Bold, color = TextPrimary)
                 Text(
-                    "Configuring this allows the app to perform 1-click anonymous downloads and upgrades for new releases.",
+                    "The app performs 1-click anonymous downloads and upgrades directly from the public GitHub repository releases.",
                     fontSize = 12.sp,
                     color = TextSecondary
-                )
-
-                OutlinedTextField(
-                    value = githubOwner,
-                    onValueChange = { githubOwner = it },
-                    label = { Text("GitHub Owner / Organization") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
-                )
-
-                OutlinedTextField(
-                    value = githubRepo,
-                    onValueChange = { githubRepo = it },
-                    label = { Text("Repository Name") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
                 )
 
                 Row(
@@ -147,17 +128,9 @@ fun SettingsScreen(repository: FinanceRepository) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Current Version: ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = TextSecondary)
-                    Button(
-                        onClick = {
-                            repository.saveGitHubSettings(githubOwner, githubRepo)
-                            Toast.makeText(context, "Settings Saved", Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Text("Save Settings")
-                    }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                 // Updater Control Panel
                 Text("Version Control", fontWeight = FontWeight.SemiBold, color = TextPrimary)

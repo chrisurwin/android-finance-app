@@ -64,18 +64,15 @@ fun DashboardScreen(
     
     // Check update on dashboard start
     LaunchedEffect(Unit) {
-        val (owner, repo) = repository.getGitHubSettings()
-        if (owner.isNotEmpty() && repo.isNotEmpty()) {
-            val updater = AppUpdater(context, OkHttpClient(), owner, repo)
-            updater.checkForUpdates(BuildConfig.VERSION_NAME, object : AppUpdater.UpdateCheckCallback {
-                override fun onUpdateAvailable(newVersion: String, downloadUrl: String, assetName: String, sizeBytes: Long) {
-                    latestTagName = newVersion
-                    isUpdateAvailable = true
-                }
-                override fun onNoUpdateAvailable() {}
-                override fun onError(error: String) {}
-            })
-        }
+        val updater = AppUpdater(context, OkHttpClient(), "chrisurwin", "android-finance-app")
+        updater.checkForUpdates(BuildConfig.VERSION_NAME, object : AppUpdater.UpdateCheckCallback {
+            override fun onUpdateAvailable(newVersion: String, downloadUrl: String, assetName: String, sizeBytes: Long) {
+                latestTagName = newVersion
+                isUpdateAvailable = true
+            }
+            override fun onNoUpdateAvailable() {}
+            override fun onError(error: String) {}
+        })
     }
 
     val totalPortfolioVal = accounts.filter { it.isIncluded }.sumOf { it.balance }

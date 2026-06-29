@@ -370,8 +370,8 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                         when(inst) {
                                             Institution.HSBC -> "uk-ob-hsbc"
                                             Institution.FIRST_DIRECT -> "uk-ob-first-direct"
-                                            Institution.CHASE -> "uk-ob-chase"
-                                            Institution.JP_ORGAN -> "uk-ob-jpmorgan"
+                                            Institution.CHASE -> "ob-chase"
+                                            Institution.JP_ORGAN -> "ob-jpmorgan-wealth"
                                             else -> "uk-ob-all"
                                         }
                                     }
