@@ -284,16 +284,20 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 if (id.isNotEmpty() && secret.isNotEmpty()) {
                                     val isSandbox = id.lowercase().contains("sandbox") || secret.lowercase().contains("sandbox")
                                     val authBaseUrl = if (isSandbox) "https://auth.truelayer-sandbox.com" else "https://auth.truelayer.com"
-                                    val providersParam = when(inst) {
-                                        Institution.HSBC -> if (isSandbox) "uk-ob-all" else "uk-ob-hsbc"
-                                        Institution.FIRST_DIRECT -> if (isSandbox) "uk-ob-all" else "uk-ob-first-direct"
-                                        Institution.CHASE -> if (isSandbox) "uk-ob-all" else "uk-ob-chase"
-                                        Institution.JP_ORGAN -> if (isSandbox) "uk-ob-all" else "uk-ob-jpmorgan"
-                                        else -> "uk-ob-all"
+                                    val providersParam = if (isSandbox) {
+                                        "sandbox"
+                                    } else {
+                                        when(inst) {
+                                            Institution.HSBC -> "uk-ob-hsbc"
+                                            Institution.FIRST_DIRECT -> "uk-ob-first-direct"
+                                            Institution.CHASE -> "uk-ob-chase"
+                                            Institution.JP_ORGAN -> "uk-ob-jpmorgan"
+                                            else -> "uk-ob-all"
+                                        }
                                     }
                                     val redirectUrl = "financeapp://truelayer-callback"
                                     val encodedRedirect = java.net.URLEncoder.encode(redirectUrl, "UTF-8")
-                                    val authLink = "$authBaseUrl/?response_type=code&client_id=$id&redirect_uri=$encodedRedirect&scope=info%20accounts%20balance&providers=$providersParam"
+                                    val authLink = "$authBaseUrl/?response_type=code&client_id=$id&redirect_uri=$encodedRedirect&scope=info%20accounts%20balance%20offline_access&providers=$providersParam"
 
                                     // Save pending state so MainActivity knows what bank is being linked when they return
                                     repository.savePendingRequisition("pending", inst.name)
