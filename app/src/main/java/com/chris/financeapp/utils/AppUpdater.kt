@@ -49,7 +49,11 @@ class AppUpdater(
         }
 
         val url = "https://api.github.com/repos/$repoOwner/$repoName/releases/latest"
-        val request = Request.Builder().url(url).get().build()
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("User-Agent", "AndroidFinanceApp-Updater")
+            .get()
+            .build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -104,6 +108,7 @@ class AppUpdater(
     fun downloadUpdateApk(downloadUrl: String, assetName: String, callback: DownloadCallback) {
         val request = Request.Builder()
             .url(downloadUrl)
+            .addHeader("User-Agent", "AndroidFinanceApp-Updater")
             .get()
             .build()
 
