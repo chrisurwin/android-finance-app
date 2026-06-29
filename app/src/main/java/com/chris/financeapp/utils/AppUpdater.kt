@@ -24,14 +24,13 @@ class AppUpdater(
     private val context: Context,
     private val client: OkHttpClient,
     private val repoOwner: String,
-    private val repoName: String,
-    private val githubToken: String?
+    private val repoName: String
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val parser = Json { ignoreUnknownKeys = true }
 
     interface UpdateCheckCallback {
-        fun onUpdateAvailable(newVersion: String, assetId: String, assetName: String, sizeBytes: Long)
+        fun onUpdateAvailable(newVersion: String, downloadUrl: String, assetName: String, sizeBytes: Long)
         fun onNoUpdateAvailable()
         fun onError(error: String)
     }
@@ -42,20 +41,17 @@ class AppUpdater(
         fun onError(error: String)
     }
 
-    // Queries the latest GitHub release
+    // Queries the latest GitHub release anonymously
     fun checkForUpdates(currentVersion: String, callback: UpdateCheckCallback) {
         if (repoOwner.isEmpty() || repoName.isEmpty()) {
-            callback.onError("GitHub repository owner or name is not configured in Settings.")
+            callback.onError("GitHub repository owner or name is not configured.")
             return
         }
 
         val url = "https://api.github.com/repos/$repoOwner/$repoName/releases/latest"
-        val requestBuilder = Request.Builder().url(url).get()
-        if (!githubToken.isNullOrEmpty()) {
-            requestBuilder.addHeader("Authorization", "token $githubToken")
-        }
+        val request = Request.Builder().url(url).get().build()
 
-        client.newCall(requestBuilder.build()).enqueue(object : Callback {
+        client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 mainHandler.post { callback.onError("Network error: ${e.message}") }
             }
@@ -63,7 +59,7 @@ class AppUpdater(
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     if (!response.isSuccessful) {
-                        mainHandler.post { callback.onError("GitHub API error: Code ${response.code} (Check token/repo)") }
+                        mainHandler.post { callback.onError("Update check failed: Code ${response.code}") }
                         return
                     }
                     val bodyStr = response.body?.string() ?: ""
@@ -71,22 +67,20 @@ class AppUpdater(
                         val jsonElement = parser.parseToJsonElement(bodyStr)
                         val tagName = jsonElement.jsonObject["tag_name"]?.jsonPrimitive?.contentOrNull ?: ""
                         
-                        // Parse clean tags (e.g. v1.0.0 -> 1.0.0)
                         val latestVer = tagName.removePrefix("v").trim()
                         val currentVer = currentVersion.removePrefix("v").trim()
 
                         if (latestVer.isNotEmpty() && latestVer != currentVer) {
-                            // Find the first APK asset
                             val assets = jsonElement.jsonObject["assets"]?.jsonArray ?: return
                             var foundApk = false
                             for (asset in assets) {
                                 val assetObj = asset.jsonObject
                                 val name = assetObj["name"]?.jsonPrimitive?.contentOrNull ?: ""
                                 if (name.endsWith(".apk")) {
-                                    val id = assetObj["id"]?.jsonPrimitive?.contentOrNull ?: ""
+                                    val downloadUrl = assetObj["browser_download_url"]?.jsonPrimitive?.contentOrNull ?: ""
                                     val size = assetObj["size"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
                                     mainHandler.post {
-                                        callback.onUpdateAvailable(latestVer, id, name, size)
+                                        callback.onUpdateAvailable(latestVer, downloadUrl, name, size)
                                     }
                                     foundApk = true
                                     break
@@ -106,18 +100,14 @@ class AppUpdater(
         })
     }
 
-    // Downloads the private release asset using Accept: application/octet-stream
-    fun downloadUpdateApk(assetId: String, assetName: String, callback: DownloadCallback) {
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/releases/assets/$assetId"
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .addHeader("Accept", "application/octet-stream")
+    // Downloads the public release asset anonymously
+    fun downloadUpdateApk(downloadUrl: String, assetName: String, callback: DownloadCallback) {
+        val request = Request.Builder()
+            .url(downloadUrl)
+            .get()
+            .build()
 
-        if (!githubToken.isNullOrEmpty()) {
-            requestBuilder.addHeader("Authorization", "token $githubToken")
-        }
-
-        client.newCall(requestBuilder.build()).enqueue(object : Callback {
+        client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 mainHandler.post { callback.onError("Download failed: ${e.message}") }
             }

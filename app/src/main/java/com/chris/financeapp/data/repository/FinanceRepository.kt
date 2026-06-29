@@ -85,31 +85,29 @@ class FinanceRepository(private val context: Context) {
 
     // --- Integration Configurations ---
 
-    fun getGoCardlessCredentials(): Pair<String, String> {
-        val id = securePrefs.getString("gocardless_id", "") ?: ""
-        val key = securePrefs.getString("gocardless_key", "") ?: ""
-        return Pair(id, key)
+    fun getTrueLayerCredentials(): Pair<String, String> {
+        val id = securePrefs.getString("truelayer_client_id", "") ?: ""
+        val secret = securePrefs.getString("truelayer_client_secret", "") ?: ""
+        return Pair(id, secret)
     }
 
-    fun saveGoCardlessCredentials(secretId: String, secretKey: String) {
+    fun saveTrueLayerCredentials(clientId: String, clientSecret: String) {
         securePrefs.edit()
-            .putString("gocardless_id", secretId)
-            .putString("gocardless_key", secretKey)
+            .putString("truelayer_client_id", clientId)
+            .putString("truelayer_client_secret", clientSecret)
             .apply()
     }
 
-    fun getGitHubSettings(): Triple<String, String, String> {
+    fun getGitHubSettings(): Pair<String, String> {
         val owner = securePrefs.getString("github_owner", "") ?: ""
         val repo = securePrefs.getString("github_repo", "") ?: ""
-        val token = securePrefs.getString("github_token", "") ?: ""
-        return Triple(owner, repo, token)
+        return Pair(owner, repo)
     }
 
-    fun saveGitHubSettings(owner: String, repo: String, token: String) {
+    fun saveGitHubSettings(owner: String, repo: String) {
         securePrefs.edit()
             .putString("github_owner", owner)
             .putString("github_repo", repo)
-            .putString("github_token", token)
             .apply()
     }
 

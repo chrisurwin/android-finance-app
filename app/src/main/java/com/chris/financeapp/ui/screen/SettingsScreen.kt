@@ -31,25 +31,24 @@ fun SettingsScreen(repository: FinanceRepository) {
     val scrollState = rememberScrollState()
 
     // Load configurations from Repository
-    val (gcId, gcKey) = remember { repository.getGoCardlessCredentials() }
-    val (ghOwner, ghRepo, ghToken) = remember { repository.getGitHubSettings() }
+    val (tlId, tlSecret) = remember { repository.getTrueLayerCredentials() }
+    val (ghOwner, ghRepo) = remember { repository.getGitHubSettings() }
 
-    var gocardlessId by remember { mutableStateOf(gcId) }
-    var gocardlessKey by remember { mutableStateOf(gcKey) }
+    var truelayerId by remember { mutableStateOf(tlId) }
+    var truelayerSecret by remember { mutableStateOf(tlSecret) }
     var githubOwner by remember { mutableStateOf(ghOwner) }
     var githubRepo by remember { mutableStateOf(ghRepo) }
-    var githubToken by remember { mutableStateOf(ghToken) }
 
     // Updater states
     var updateStatus by remember { mutableStateOf("") }
     var updateProgress by remember { mutableStateOf(0) }
     var isChecking by remember { mutableStateOf(false) }
-    var latestAssetId by remember { mutableStateOf<String?>(null) }
+    var latestDownloadUrl by remember { mutableStateOf<String?>(null) }
     var latestAssetName by remember { mutableStateOf<String?>(null) }
 
     val client = remember { OkHttpClient() }
-    val updater = remember(githubOwner, githubRepo, githubToken) {
-        AppUpdater(context, client, githubOwner, githubRepo, githubToken)
+    val updater = remember(githubOwner, githubRepo) {
+        AppUpdater(context, client, githubOwner, githubRepo)
     }
 
     Column(
@@ -67,7 +66,7 @@ fun SettingsScreen(repository: FinanceRepository) {
             color = TextPrimary
         )
 
-        // GoCardless Open Banking section
+        // TrueLayer Open Banking section
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
@@ -75,25 +74,25 @@ fun SettingsScreen(repository: FinanceRepository) {
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("GoCardless Open Banking API", fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text("TrueLayer Open Banking API", fontWeight = FontWeight.Bold, color = TextPrimary)
                 Text(
-                    "Register a free GoCardless (Nordigen) developer account to query real account balances.",
+                    "Register a free TrueLayer developer console account to query real account balances.",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
                 
                 OutlinedTextField(
-                    value = gocardlessId,
-                    onValueChange = { gocardlessId = it },
-                    label = { Text("Secret ID") },
+                    value = truelayerId,
+                    onValueChange = { truelayerId = it },
+                    label = { Text("Client ID") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
                 )
 
                 OutlinedTextField(
-                    value = gocardlessKey,
-                    onValueChange = { gocardlessKey = it },
-                    label = { Text("Secret Key") },
+                    value = truelayerSecret,
+                    onValueChange = { truelayerSecret = it },
+                    label = { Text("Client Secret") },
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
@@ -101,7 +100,7 @@ fun SettingsScreen(repository: FinanceRepository) {
 
                 Button(
                     onClick = {
-                        repository.saveGoCardlessCredentials(gocardlessId, gocardlessKey)
+                        repository.saveTrueLayerCredentials(truelayerId, truelayerSecret)
                         Toast.makeText(context, "Credentials Saved", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.align(Alignment.End)
@@ -121,7 +120,7 @@ fun SettingsScreen(repository: FinanceRepository) {
             ) {
                 Text("App Updates (GitHub Integration)", fontWeight = FontWeight.Bold, color = TextPrimary)
                 Text(
-                    "Configuring this allows the app to perform 1-click downloads and upgrades for new releases.",
+                    "Configuring this allows the app to perform 1-click anonymous downloads and upgrades for new releases.",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -142,15 +141,6 @@ fun SettingsScreen(repository: FinanceRepository) {
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
                 )
 
-                OutlinedTextField(
-                    value = githubToken,
-                    onValueChange = { githubToken = it },
-                    label = { Text("Personal Access Token (PAT)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
-                )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -159,7 +149,7 @@ fun SettingsScreen(repository: FinanceRepository) {
                     Text("Current Version: ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = TextSecondary)
                     Button(
                         onClick = {
-                            repository.saveGitHubSettings(githubOwner, githubRepo, githubToken)
+                            repository.saveGitHubSettings(githubOwner, githubRepo)
                             Toast.makeText(context, "Settings Saved", Toast.LENGTH_SHORT).show()
                         }
                     ) {
@@ -183,9 +173,9 @@ fun SettingsScreen(repository: FinanceRepository) {
                             updater.checkForUpdates(
                                 BuildConfig.VERSION_NAME,
                                 object : AppUpdater.UpdateCheckCallback {
-                                    override fun onUpdateAvailable(newVersion: String, assetId: String, assetName: String, sizeBytes: Long) {
+                                    override fun onUpdateAvailable(newVersion: String, downloadUrl: String, assetName: String, sizeBytes: Long) {
                                         isChecking = false
-                                        latestAssetId = assetId
+                                        latestDownloadUrl = downloadUrl
                                         latestAssetName = assetName
                                         updateStatus = "New release found: v$newVersion"
                                     }
@@ -207,14 +197,14 @@ fun SettingsScreen(repository: FinanceRepository) {
                         Text("Check for Update")
                     }
 
-                    if (latestAssetId != null) {
+                    if (latestDownloadUrl != null) {
                         Button(
                             onClick = {
-                                val assetId = latestAssetId ?: return@Button
+                                val downloadUrl = latestDownloadUrl ?: return@Button
                                 val name = latestAssetName ?: "update.apk"
                                 updateStatus = "Downloading APK update..."
                                 updater.downloadUpdateApk(
-                                    assetId,
+                                    downloadUrl,
                                     name,
                                     object : AppUpdater.DownloadCallback {
                                         override fun onProgress(percentage: Int) {

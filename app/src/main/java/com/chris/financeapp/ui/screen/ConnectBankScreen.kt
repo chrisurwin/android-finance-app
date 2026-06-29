@@ -33,7 +33,7 @@ import com.chris.financeapp.data.repository.FinanceRepository
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import com.chris.financeapp.data.api.GoCardlessApi
+import com.chris.financeapp.data.api.TrueLayerApi
 import com.chris.financeapp.ui.theme.SlateBg
 import com.chris.financeapp.ui.theme.TextPrimary
 import com.chris.financeapp.ui.theme.TextSecondary
@@ -279,44 +279,29 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 interestRate = "6.0" // Default assumptions
                                 amc = if (inst == Institution.AVIVA) "0.75" else "0.4"
                             } else {
-                                // Open Banking Banks: check for GoCardless keys
-                                val (id, key) = repository.getGoCardlessCredentials()
-                                if (id.isNotEmpty() && key.isNotEmpty()) {
-                                    val isSandbox = id.lowercase().contains("sandbox")
-                                    val bankId = when(inst) {
-                                        Institution.HSBC -> if (isSandbox) "SANDBOXFINANCE_SABXGB21" else "HSBC_HSBCGB21"
-                                        Institution.FIRST_DIRECT -> if (isSandbox) "SANDBOXFINANCE_SABXGB21" else "FIRSTDIRECT_FDIRGB21"
-                                        Institution.CHASE -> if (isSandbox) "SANDBOXFINANCE_SABXGB21" else "CHASE_CHASGB21"
-                                        Institution.JP_ORGAN -> if (isSandbox) "SANDBOXFINANCE_SABXGB21" else "JPMORGAN_JPMGB21"
-                                        else -> "SANDBOXFINANCE_SABXGB21"
+                                // Open Banking Banks: check for TrueLayer keys
+                                val (id, secret) = repository.getTrueLayerCredentials()
+                                if (id.isNotEmpty() && secret.isNotEmpty()) {
+                                    val isSandbox = id.lowercase().contains("sandbox") || secret.lowercase().contains("sandbox")
+                                    val authBaseUrl = if (isSandbox) "https://auth.truelayer-sandbox.com" else "https://auth.truelayer.com"
+                                    val providersParam = when(inst) {
+                                        Institution.HSBC -> if (isSandbox) "uk-ob-all" else "uk-ob-hsbc"
+                                        Institution.FIRST_DIRECT -> if (isSandbox) "uk-ob-all" else "uk-ob-first-direct"
+                                        Institution.CHASE -> if (isSandbox) "uk-ob-all" else "uk-ob-chase"
+                                        Institution.JP_ORGAN -> if (isSandbox) "uk-ob-all" else "uk-ob-jpmorgan"
+                                        else -> "uk-ob-all"
                                     }
+                                    val redirectUrl = "financeapp://truelayer-callback"
+                                    val authLink = "$authBaseUrl/?response_type=code&client_id=$id&redirect_uri=$redirectUrl&scope=info%20accounts%20balance&providers=$providersParam"
 
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        val client = OkHttpClient()
-                                        val api = GoCardlessApi(client)
-                                        val token = api.getAccessToken(id, key)
-                                        if (token != null) {
-                                            val reqPair = api.createRequisitionLink(token, bankId, redirectUrl = "financeapp://gocardless-callback")
-                                            if (reqPair != null) {
-                                                val (requisitionId, authLink) = reqPair
-                                                repository.savePendingRequisition(requisitionId, inst.name)
-                                                
-                                                // Launch system browser for secure App-to-App authentication
-                                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authLink)).apply {
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                }
-                                                context.startActivity(browserIntent)
-                                            } else {
-                                                launch(Dispatchers.Main) {
-                                                    Toast.makeText(context, "Failed to create Open Banking redirect link.", Toast.LENGTH_LONG).show()
-                                                }
-                                            }
-                                        } else {
-                                            launch(Dispatchers.Main) {
-                                                Toast.makeText(context, "Open Banking credentials rejected by GoCardless.", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
+                                    // Save pending state so MainActivity knows what bank is being linked when they return
+                                    repository.savePendingRequisition("pending", inst.name)
+                                    
+                                    // Launch system browser for secure App-to-App authentication
+                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authLink)).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
+                                    context.startActivity(browserIntent)
                                 } else {
                                     // Prefill dummy values to make manual/simulated demo flow look premium
                                     selectedType = if (inst == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT

@@ -15,7 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.chris.financeapp.data.api.GoCardlessApi
+import com.chris.financeapp.data.api.TrueLayerApi
 import com.chris.financeapp.data.model.Account
 import com.chris.financeapp.data.model.AccountType
 import com.chris.financeapp.data.model.Institution
@@ -86,24 +86,27 @@ class MainActivity : ComponentActivity() {
 
     private fun handleDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "financeapp" && data.host == "gocardless-callback") {
+        if (data.scheme == "financeapp" && data.host == "truelayer-callback") {
+            val code = data.getQueryParameter("code") ?: return
             val repository = FinanceRepository(applicationContext)
             val pending = repository.getPendingRequisition()
             if (pending != null) {
-                val (requisitionId, institutionName) = pending
-                val (secretId, secretKey) = repository.getGoCardlessCredentials()
+                val (_, institutionName) = pending
+                val (clientId, clientSecret) = repository.getTrueLayerCredentials()
+                val isSandbox = clientId.lowercase().contains("sandbox") || clientSecret.lowercase().contains("sandbox")
                 
                 lifecycleScope.launch(Dispatchers.IO) {
                     val client = OkHttpClient()
-                    val api = GoCardlessApi(client)
+                    val api = TrueLayerApi(client, isSandbox)
                     
-                    val token = api.getAccessToken(secretId, secretKey)
-                    if (token != null) {
-                        val accounts = api.getRequisitionAccounts(token, requisitionId)
+                    val tokenPair = api.exchangeCodeForToken(clientId, clientSecret, code)
+                    if (tokenPair != null) {
+                        val (accessToken, _) = tokenPair
+                        val accounts = api.getAccounts(accessToken)
                         if (accounts.isNotEmpty()) {
                             var successCount = 0
-                            accounts.forEach { accountId ->
-                                val balance = api.getAccountBalance(token, accountId)
+                            accounts.forEach { (accountId, accountName) ->
+                                val balance = api.getAccountBalance(accessToken, accountId)
                                 if (balance != null) {
                                     val institution = try {
                                         Institution.valueOf(institutionName)
@@ -113,7 +116,7 @@ class MainActivity : ComponentActivity() {
                                     
                                     val acc = Account(
                                         id = accountId,
-                                        name = "${institution.displayName} Account",
+                                        name = accountName,
                                         type = if (institution == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT,
                                         institution = institution,
                                         balance = balance,
@@ -138,7 +141,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         launch(Dispatchers.Main) {
-                            Toast.makeText(applicationContext, "Open Banking Authentication token request failed.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(applicationContext, "Open Banking code exchange failed.", Toast.LENGTH_LONG).show()
                         }
                     }
                     repository.clearPendingRequisition()

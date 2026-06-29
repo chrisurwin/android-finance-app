@@ -53,11 +53,11 @@ fun DashboardScreen(
     
     // Check update on dashboard start
     LaunchedEffect(Unit) {
-        val (owner, repo, token) = repository.getGitHubSettings()
+        val (owner, repo) = repository.getGitHubSettings()
         if (owner.isNotEmpty() && repo.isNotEmpty()) {
-            val updater = AppUpdater(context, OkHttpClient(), owner, repo, token)
+            val updater = AppUpdater(context, OkHttpClient(), owner, repo)
             updater.checkForUpdates(BuildConfig.VERSION_NAME, object : AppUpdater.UpdateCheckCallback {
-                override fun onUpdateAvailable(newVersion: String, assetId: String, assetName: String, sizeBytes: Long) {
+                override fun onUpdateAvailable(newVersion: String, downloadUrl: String, assetName: String, sizeBytes: Long) {
                     latestTagName = newVersion
                     isUpdateAvailable = true
                 }
