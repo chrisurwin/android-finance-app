@@ -3,6 +3,7 @@ package com.chris.financeapp
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -96,57 +97,65 @@ class MainActivity : ComponentActivity() {
                 val isSandbox = clientId.lowercase().contains("sandbox") || clientSecret.lowercase().contains("sandbox")
                 
                 lifecycleScope.launch(Dispatchers.IO) {
-                    val client = OkHttpClient()
-                    val api = TrueLayerApi(client, isSandbox)
-                    
-                    val result = api.exchangeCodeForToken(clientId, clientSecret, code)
-                    if (result.isSuccess) {
-                        val (accessToken, _) = result.getOrThrow()
-                        val accounts = api.getAccounts(accessToken)
-                        if (accounts.isNotEmpty()) {
-                            var successCount = 0
-                            accounts.forEach { (accountId, accountName) ->
-                                val balance = api.getAccountBalance(accessToken, accountId)
-                                if (balance != null) {
-                                    val institution = try {
-                                        Institution.valueOf(institutionName)
-                                    } catch (e: Exception) {
-                                        Institution.FIRST_DIRECT
+                    try {
+                        val client = OkHttpClient()
+                        val api = TrueLayerApi(client, isSandbox)
+                        
+                        val result = api.exchangeCodeForToken(clientId, clientSecret, code)
+                        if (result.isSuccess) {
+                            val (accessToken, _) = result.getOrThrow()
+                            val accounts = api.getAccounts(accessToken)
+                            if (accounts.isNotEmpty()) {
+                                var successCount = 0
+                                accounts.forEach { (accountId, accountName) ->
+                                    val balance = api.getAccountBalance(accessToken, accountId)
+                                    if (balance != null) {
+                                        val institution = try {
+                                            Institution.valueOf(institutionName)
+                                        } catch (e: Exception) {
+                                            Institution.FIRST_DIRECT
+                                        }
+                                        
+                                        val acc = Account(
+                                            id = accountId,
+                                            name = accountName,
+                                            type = if (institution == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT,
+                                            institution = institution,
+                                            balance = balance,
+                                            isConnected = true
+                                        )
+                                        repository.addOrUpdateAccount(acc)
+                                        successCount++
                                     }
-                                    
-                                    val acc = Account(
-                                        id = accountId,
-                                        name = accountName,
-                                        type = if (institution == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT,
-                                        institution = institution,
-                                        balance = balance,
-                                        isConnected = true
-                                    )
-                                    repository.addOrUpdateAccount(acc)
-                                    successCount++
                                 }
-                            }
-                            
-                            repository.clearLastIntegrationError()
-                            launch(Dispatchers.Main) {
-                                if (successCount > 0) {
-                                    Toast.makeText(applicationContext, "Connected $institutionName accounts successfully!", Toast.LENGTH_LONG).show()
-                                } else {
-                                    Toast.makeText(applicationContext, "Linked, but no active accounts/balances found.", Toast.LENGTH_LONG).show()
+                                
+                                repository.clearLastIntegrationError()
+                                launch(Dispatchers.Main) {
+                                    if (successCount > 0) {
+                                        Toast.makeText(applicationContext, "Connected $institutionName accounts successfully!", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(applicationContext, "Linked, but no active accounts/balances found.", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } else {
+                                repository.saveLastIntegrationError("Accounts fetch failed: No authorized accounts found for $institutionName.")
+                                launch(Dispatchers.Main) {
+                                    Toast.makeText(applicationContext, "No authorized accounts found for $institutionName.", Toast.LENGTH_LONG).show()
                                 }
                             }
                         } else {
-                            repository.saveLastIntegrationError("Accounts fetch failed: No authorized accounts found for $institutionName.")
+                            val exception = result.exceptionOrNull()
+                            val errorMsg = exception?.message ?: "Unknown error"
+                            repository.saveLastIntegrationError("Code exchange failed: $errorMsg")
                             launch(Dispatchers.Main) {
-                                Toast.makeText(applicationContext, "No authorized accounts found for $institutionName.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(applicationContext, "Open Banking code exchange failed: $errorMsg", Toast.LENGTH_LONG).show()
                             }
                         }
-                    } else {
-                        val exception = result.exceptionOrNull()
-                        val errorMsg = exception?.message ?: "Unknown error"
-                        repository.saveLastIntegrationError("Code exchange failed: $errorMsg")
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Deep link authentication failed", e)
+                        repository.saveLastIntegrationError("Crash occurred during connection: ${e.localizedMessage}")
                         launch(Dispatchers.Main) {
-                            Toast.makeText(applicationContext, "Open Banking code exchange failed: $errorMsg", Toast.LENGTH_LONG).show()
+                            Toast.makeText(applicationContext, "Connection failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                         }
                     }
                     repository.clearPendingRequisition()

@@ -97,8 +97,8 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
                 val refresh = json["refresh_token"]?.jsonPrimitive?.contentOrNull ?: refreshToken
                 Pair(access, refresh)
             }
-        } catch (e: IOException) {
-            Log.e("TrueLayerApi", "Token refresh connection exception", e)
+        } catch (e: Exception) {
+            Log.e("TrueLayerApi", "Token refresh exception", e)
             null
         }
     }
@@ -127,8 +127,8 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
                     if (id != null) Pair(id, name) else null
                 }
             }
-        } catch (e: IOException) {
-            Log.e("TrueLayerApi", "Accounts fetch connection exception", e)
+        } catch (e: Exception) {
+            Log.e("TrueLayerApi", "Accounts fetch exception", e)
             emptyList()
         }
     }
@@ -154,8 +154,8 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
                 val balanceObj = results[0].jsonObject
                 balanceObj["current"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
             }
-        } catch (e: IOException) {
-            Log.e("TrueLayerApi", "Balance fetch connection exception", e)
+        } catch (e: Exception) {
+            Log.e("TrueLayerApi", "Balance fetch exception", e)
             null
         }
     }
