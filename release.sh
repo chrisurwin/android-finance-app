@@ -22,6 +22,21 @@ echo "🚀 Preparing release for version: $TAG_VERSION"
 GRADLE_FILE="app/build.gradle.kts"
 if [ -f "$GRADLE_FILE" ]; then
   echo "📝 Updating version in $GRADLE_FILE to $CLEAN_VERSION..."
+  
+  # Increment versionCode
+  CURRENT_CODE=$(grep "versionCode = " "$GRADLE_FILE" | sed 's/[^0-9]//g')
+  if [ -n "$CURRENT_CODE" ]; then
+    NEW_CODE=$((CURRENT_CODE + 1))
+    echo "🔢 Bumping versionCode from $CURRENT_CODE to $NEW_CODE..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/versionCode = .*/versionCode = $NEW_CODE/" "$GRADLE_FILE"
+    else
+      sed -i "s/versionCode = .*/versionCode = $NEW_CODE/" "$GRADLE_FILE"
+    fi
+  else
+    echo "⚠️ Warning: Could not parse current versionCode from $GRADLE_FILE"
+  fi
+
   # Use sed to replace versionName
   if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS sed syntax

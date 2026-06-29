@@ -20,8 +20,21 @@ android {
         }
     }
 
+    signingConfigs {
+        create("config") {
+            storeFile = file("financeapp.keystore")
+            storePassword = "financeapp"
+            keyAlias = "financeapp"
+            keyPassword = "financeapp"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("config")
+        }
         release {
+            signingConfig = signingConfigs.getByName("config")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
