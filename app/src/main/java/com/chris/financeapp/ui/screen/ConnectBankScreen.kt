@@ -34,6 +34,7 @@ import com.chris.financeapp.data.model.Account
 import com.chris.financeapp.data.model.AccountType
 import com.chris.financeapp.data.model.Institution
 import com.chris.financeapp.data.repository.FinanceRepository
+import com.chris.financeapp.ui.theme.*
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
@@ -61,6 +62,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
     // Scraped / Auth balance details
     var fetchedBalance by remember { mutableStateOf<Double?>(null) }
     var showSetupDialog by remember { mutableStateOf(false) }
+    var showChoiceDialog by remember { mutableStateOf(false) }
     
     // WebView reference to inject JS
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
@@ -78,6 +80,87 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
     var amc by remember { mutableStateOf("0.0") }
 
     val institutions = remember { Institution.values() }
+
+    if (showChoiceDialog) {
+        val inst = selectedInstitution
+        if (inst != null) {
+            AlertDialog(
+                onDismissRequest = { showChoiceDialog = false },
+                title = { Text("Link ${inst.displayName}", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        text = "Would you like to connect securely via TrueLayer (Open Banking) or set up the account balance manually?",
+                        color = TextSecondary,
+                        fontSize = 14.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo),
+                        onClick = {
+                            showChoiceDialog = false
+                            try {
+                                val (id, secret) = repository.getTrueLayerCredentials()
+                                val isSandbox = id.lowercase().contains("sandbox") || secret.lowercase().contains("sandbox")
+                                val authBaseUrl = if (isSandbox) "https://auth.truelayer-sandbox.com" else "https://auth.truelayer.com"
+                                val providersParam = if (isSandbox) {
+                                    "sandbox"
+                                } else {
+                                    when(inst) {
+                                        Institution.HSBC -> "uk-ob-hsbc"
+                                        Institution.FIRST_DIRECT -> "uk-ob-first-direct"
+                                        Institution.CHASE -> "uk-ob-chase"
+                                        Institution.JP_ORGAN -> "uk-ob-jpmorgan"
+                                        Institution.STARLING -> "uk-oauth-starling"
+                                        Institution.HOSTED -> ""
+                                        else -> "uk-ob-all"
+                                    }
+                                }
+                                val redirectUrl = "financeapp://truelayer-callback"
+                                val encodedRedirect = java.net.URLEncoder.encode(redirectUrl, "UTF-8")
+                                val providersQuery = if (providersParam.isNotEmpty()) "&providers=$providersParam" else ""
+                                val authLink = "$authBaseUrl/?response_type=code&client_id=$id&redirect_uri=$encodedRedirect&scope=accounts%20balance%20offline_access$providersQuery"
+
+                                // Save pending state so MainActivity knows what bank is being linked when they return
+                                repository.savePendingRequisition("pending", inst.name)
+                                
+                                // Launch system browser for secure App-to-App authentication
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authLink)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(browserIntent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error constructing authentication link: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    ) {
+                        Text("Open Banking")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showChoiceDialog = false
+                            accountName = inst.displayName
+                            accountNumberInput = ""
+                            selectedType = if (inst == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT
+                            balanceInput = when(inst) {
+                                Institution.HSBC -> "15000.0"
+                                Institution.FIRST_DIRECT -> "2350.0"
+                                Institution.CHASE -> "8400.0"
+                                Institution.JP_ORGAN -> "48000.0"
+                                else -> "1000.0"
+                            }
+                            interestRate = if (inst == Institution.JP_ORGAN) "5.5" else "2.2"
+                            showSetupDialog = true
+                        }
+                    ) {
+                        Text("Set Up Manually", color = TextPrimary)
+                    }
+                }
+            )
+        }
+    }
 
     if (showSetupDialog) {
         AlertDialog(
@@ -359,52 +442,25 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 accountName = inst.displayName
                                 accountNumberInput = ""
                             } else {
-                                // Open Banking Banks: check for TrueLayer keys
-                                val (id, secret) = repository.getTrueLayerCredentials()
-                                if (id.isNotEmpty() && secret.isNotEmpty()) {
-                                    val isSandbox = id.lowercase().contains("sandbox") || secret.lowercase().contains("sandbox")
-                                    val authBaseUrl = if (isSandbox) "https://auth.truelayer-sandbox.com" else "https://auth.truelayer.com"
-                                    val providersParam = if (isSandbox) {
-                                        "sandbox"
-                                    } else {
-                                        when(inst) {
-                                            Institution.HSBC -> "uk-ob-hsbc"
-                                            Institution.FIRST_DIRECT -> "uk-ob-first-direct"
-                                            Institution.CHASE -> "uk-ob-chase"
-                                            Institution.JP_ORGAN -> "uk-ob-jpmorgan"
-                                            Institution.STARLING -> "uk-oauth-starling"
-                                            Institution.HOSTED -> ""
-                                            else -> "uk-ob-all"
-                                        }
-                                    }
-                                    val redirectUrl = "financeapp://truelayer-callback"
-                                    val encodedRedirect = java.net.URLEncoder.encode(redirectUrl, "UTF-8")
-                                    val providersQuery = if (providersParam.isNotEmpty()) "&providers=$providersParam" else ""
-                                    val authLink = "$authBaseUrl/?response_type=code&client_id=$id&redirect_uri=$encodedRedirect&scope=accounts%20balance%20offline_access$providersQuery"
-
-                                    // Save pending state so MainActivity knows what bank is being linked when they return
-                                    repository.savePendingRequisition("pending", inst.name)
-                                    
-                                    // Launch system browser for secure App-to-App authentication
-                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authLink)).apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(browserIntent)
-                                } else {
-                                    // Prefill dummy values to make manual/simulated demo flow look premium
-                                    accountName = inst.displayName
-                                    accountNumberInput = ""
-                                    selectedType = if (inst == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT
-                                    balanceInput = when(inst) {
-                                        Institution.HSBC -> "15000.0"
-                                        Institution.FIRST_DIRECT -> "2350.0"
-                                        Institution.CHASE -> "8400.0"
-                                        Institution.JP_ORGAN -> "48000.0"
-                                        else -> "1000.0"
-                                    }
-                                    interestRate = if (inst == Institution.JP_ORGAN) "5.5" else "2.2"
-                                    showSetupDialog = true
-                                }
+                                 // Open Banking Banks: check for TrueLayer keys
+                                 val (id, secret) = repository.getTrueLayerCredentials()
+                                 if (id.isNotEmpty() && secret.isNotEmpty()) {
+                                     showChoiceDialog = true
+                                 } else {
+                                     // Prefill dummy values to make manual/simulated demo flow look premium
+                                     accountName = inst.displayName
+                                     accountNumberInput = ""
+                                     selectedType = if (inst == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT
+                                     balanceInput = when(inst) {
+                                         Institution.HSBC -> "15000.0"
+                                         Institution.FIRST_DIRECT -> "2350.0"
+                                         Institution.CHASE -> "8400.0"
+                                         Institution.JP_ORGAN -> "48000.0"
+                                         else -> "1000.0"
+                                     }
+                                     interestRate = if (inst == Institution.JP_ORGAN) "5.5" else "2.2"
+                                     showSetupDialog = true
+                                 }
                             }
                         },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
