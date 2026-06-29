@@ -61,6 +61,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
     var clickScrapeActive by remember { mutableStateOf(false) }
 
     // Dialog Fields
+    var lastError by remember { mutableStateOf(repository.getLastIntegrationError()) }
     var accountName by remember { mutableStateOf("") }
     var selectedType by remember { mutableStateOf(AccountType.CURRENT) }
     var balanceInput by remember { mutableStateOf("") }
@@ -229,6 +230,56 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (lastError.isNotEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Integration Error Details:",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = lastError,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("TrueLayer Error", lastError)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Error copied to clipboard", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Text("Copy Error", color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                repository.clearLastIntegrationError()
+                                lastError = ""
+                            }
+                        ) {
+                            Text("Dismiss", color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically

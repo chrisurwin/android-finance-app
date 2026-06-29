@@ -127,6 +127,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             
+                            repository.clearLastIntegrationError()
                             launch(Dispatchers.Main) {
                                 if (successCount > 0) {
                                     Toast.makeText(applicationContext, "Connected $institutionName accounts successfully!", Toast.LENGTH_LONG).show()
@@ -135,6 +136,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         } else {
+                            repository.saveLastIntegrationError("Accounts fetch failed: No authorized accounts found for $institutionName.")
                             launch(Dispatchers.Main) {
                                 Toast.makeText(applicationContext, "No authorized accounts found for $institutionName.", Toast.LENGTH_LONG).show()
                             }
@@ -142,6 +144,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         val exception = result.exceptionOrNull()
                         val errorMsg = exception?.message ?: "Unknown error"
+                        repository.saveLastIntegrationError("Code exchange failed: $errorMsg")
                         launch(Dispatchers.Main) {
                             Toast.makeText(applicationContext, "Open Banking code exchange failed: $errorMsg", Toast.LENGTH_LONG).show()
                         }

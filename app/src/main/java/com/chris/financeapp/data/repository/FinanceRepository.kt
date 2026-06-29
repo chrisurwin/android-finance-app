@@ -145,6 +145,18 @@ class FinanceRepository(private val context: Context) {
         dataPrefs.edit().putString("assumptions", parser.encodeToString(assumptions)).apply()
     }
 
+    fun getLastIntegrationError(): String {
+        return dataPrefs.getString("last_integration_error", "") ?: ""
+    }
+
+    fun saveLastIntegrationError(error: String) {
+        dataPrefs.edit().putString("last_integration_error", error).apply()
+    }
+
+    fun clearLastIntegrationError() {
+        dataPrefs.edit().remove("last_integration_error").apply()
+    }
+
     fun getDrawdownPreferences(): DrawdownPreferences {
         val json = dataPrefs.getString("drawdown", null)
         if (json != null) {
