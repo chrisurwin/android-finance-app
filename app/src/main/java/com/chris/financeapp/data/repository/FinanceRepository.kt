@@ -63,6 +63,26 @@ class FinanceRepository(private val context: Context) {
         saveAccounts(currentList)
     }
 
+    fun getPendingRequisition(): Pair<String, String>? {
+        val id = securePrefs.getString("pending_req_id", "") ?: ""
+        val inst = securePrefs.getString("pending_req_inst", "") ?: ""
+        return if (id.isNotEmpty() && inst.isNotEmpty()) Pair(id, inst) else null
+    }
+
+    fun savePendingRequisition(requisitionId: String, institutionName: String) {
+        securePrefs.edit()
+            .putString("pending_req_id", requisitionId)
+            .putString("pending_req_inst", institutionName)
+            .apply()
+    }
+
+    fun clearPendingRequisition() {
+        securePrefs.edit()
+            .remove("pending_req_id")
+            .remove("pending_req_inst")
+            .apply()
+    }
+
     // --- Integration Configurations ---
 
     fun getGoCardlessCredentials(): Pair<String, String> {
