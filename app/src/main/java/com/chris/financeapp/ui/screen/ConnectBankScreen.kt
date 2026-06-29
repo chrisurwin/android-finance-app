@@ -7,6 +7,8 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -34,6 +36,7 @@ import com.chris.financeapp.data.model.Institution
 import com.chris.financeapp.data.repository.FinanceRepository
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import com.chris.financeapp.data.api.TrueLayerApi
 import com.chris.financeapp.ui.theme.SlateBg
@@ -90,12 +93,15 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
 
                     // Type selection
                     Text("Account Type", fontSize = 12.sp, color = TextSecondary)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         AccountType.values().forEach { type ->
                             FilterChip(
                                 selected = selectedType == type,
                                 onClick = { selectedType = type },
-                                label = { Text(type.name) }
+                                label = { Text(type.displayName) }
                             )
                         }
                     }
@@ -143,30 +149,35 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
             confirmButton = {
                 Button(
                     onClick = {
-                        val inst = selectedInstitution ?: return@Button
-                        val balanceVal = balanceInput.toDoubleOrNull() ?: 0.0
-                        val monthlyVal = monthlyContribution.toDoubleOrNull() ?: 0.0
-                        val employerVal = employerContribution.toDoubleOrNull() ?: 0.0
-                        val interestVal = interestRate.toDoubleOrNull() ?: 0.0
-                        val amcVal = amc.toDoubleOrNull() ?: 0.0
+                        try {
+                            val inst = selectedInstitution ?: return@Button
+                            val balanceVal = balanceInput.toDoubleOrNull() ?: 0.0
+                            val monthlyVal = monthlyContribution.toDoubleOrNull() ?: 0.0
+                            val employerVal = employerContribution.toDoubleOrNull() ?: 0.0
+                            val interestVal = interestRate.toDoubleOrNull() ?: 0.0
+                            val amcVal = amc.toDoubleOrNull() ?: 0.0
 
-                        val newAccount = Account(
-                            id = UUID.randomUUID().toString(),
-                            name = accountName,
-                            type = selectedType,
-                            institution = inst,
-                            balance = balanceVal,
-                            monthlyContribution = monthlyVal,
-                            employerContribution = employerVal,
-                            interestRate = interestVal,
-                            annualManagementCharge = amcVal,
-                            isConnected = true
-                        )
-                        repository.addOrUpdateAccount(newAccount)
-                        showSetupDialog = false
-                        selectedInstitution = null
-                        showWebView = false
-                        onNavigateBack()
+                            val newAccount = Account(
+                                id = UUID.randomUUID().toString(),
+                                name = accountName,
+                                type = selectedType,
+                                institution = inst,
+                                balance = balanceVal,
+                                monthlyContribution = monthlyVal,
+                                employerContribution = employerVal,
+                                interestRate = interestVal,
+                                annualManagementCharge = amcVal,
+                                isConnected = true
+                            )
+                            repository.addOrUpdateAccount(newAccount)
+                            showSetupDialog = false
+                            selectedInstitution = null
+                            showWebView = false
+                            onNavigateBack()
+                        } catch (e: Exception) {
+                            Log.e("ConnectBankScreen", "Failed to save account", e)
+                            Toast.makeText(context, "Error saving account: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                        }
                     }
                 ) {
                     Text("Save Account")
@@ -425,7 +436,9 @@ fun ScraperWebView(
                 addJavascriptInterface(object {
                     @JavascriptInterface
                     fun onValueSelected(value: Double, rawText: String) {
-                        onBalanceScraped(value)
+                        post {
+                            onBalanceScraped(value)
+                        }
                     }
                     @JavascriptInterface
                     fun onError(err: String) {
