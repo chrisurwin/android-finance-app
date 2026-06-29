@@ -9,8 +9,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -21,7 +24,13 @@ import androidx.compose.ui.unit.sp
 import com.chris.financeapp.BuildConfig
 import com.chris.financeapp.data.model.Account
 import com.chris.financeapp.data.model.AccountType
+import com.chris.financeapp.data.api.TrueLayerApi
 import com.chris.financeapp.data.repository.FinanceRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.util.Log
+import android.widget.Toast
 import com.chris.financeapp.ui.components.DonutChart
 import com.chris.financeapp.ui.components.DonutSlice
 import com.chris.financeapp.ui.theme.*
@@ -40,6 +49,8 @@ fun DashboardScreen(
     val context = LocalContext.current
     val accounts = remember { mutableStateListOf<Account>() }
     val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
 
     // Load accounts on view launch
     LaunchedEffect(Unit) {
@@ -103,8 +114,33 @@ fun DashboardScreen(
                     color = TextSecondary
                 )
             }
-            IconButton(onClick = onNavigateToSettings) {
-                Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextPrimary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isRefreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                isRefreshing = true
+                                try {
+                                    refreshBalances(context, repository, accounts)
+                                } finally {
+                                    isRefreshing = false
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Sync feeds", tint = TextPrimary)
+                    }
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(onClick = onNavigateToSettings) {
+                    Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextPrimary)
+                }
             }
         }
 
@@ -291,12 +327,58 @@ fun DashboardScreen(
                                             }
                                         }
                                     }
-                                    Text(
-                                        text = formatter.format(account.balance),
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.5f),
-                                        fontSize = 14.sp
-                                    )
+                                    // Right-side actions and balance
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = formatter.format(account.balance),
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.5f),
+                                            fontSize = 14.sp
+                                        )
+                                        
+                                        if (account.isConnected && account.institution.category == "Bank") {
+                                            IconButton(
+                                                onClick = {
+                                                    coroutineScope.launch(Dispatchers.IO) {
+                                                        isRefreshing = true
+                                                        try {
+                                                            refreshBalances(context, repository, accounts, account)
+                                                        } finally {
+                                                            isRefreshing = false
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = "Sync balance",
+                                                    tint = color,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                        
+                                        IconButton(
+                                            onClick = {
+                                                repository.deleteAccount(account.id)
+                                                accounts.clear()
+                                                accounts.addAll(repository.getAccounts())
+                                                Toast.makeText(context, "${account.name} removed.", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete account",
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -335,6 +417,90 @@ fun DashboardScreen(
             ) {
                 Text("Future Projections")
             }
+        }
+    }
+}
+
+// Sync logic for refreshing TrueLayer account balances
+private suspend fun refreshBalances(
+    context: android.content.Context,
+    repository: FinanceRepository,
+    accounts: SnapshotStateList<Account>,
+    specificAccount: Account? = null
+) {
+    val client = OkHttpClient()
+    val (clientId, clientSecret) = repository.getTrueLayerCredentials()
+    if (clientId.isEmpty() || clientSecret.isEmpty()) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "TrueLayer keys not configured in Settings.", Toast.LENGTH_LONG).show()
+        }
+        return
+    }
+
+    val isSandbox = clientId.lowercase().contains("sandbox") || clientSecret.lowercase().contains("sandbox")
+    val api = TrueLayerApi(client, isSandbox)
+
+    // Determine which accounts to refresh (either all TrueLayer ones, or one specific)
+    val targets = if (specificAccount != null) {
+        listOf(specificAccount)
+    } else {
+        accounts.filter { it.isConnected && it.institution.category == "Bank" }
+    }
+
+    if (targets.isEmpty()) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "No linked bank accounts found to refresh.", Toast.LENGTH_SHORT).show()
+        }
+        return
+    }
+
+    var successCount = 0
+    var failCount = 0
+    val processedInstitutions = mutableSetOf<String>()
+
+    targets.forEach { target ->
+        val instName = target.institution.name
+        // We refresh tokens once per institution in this session
+        var tokenPair = repository.getTrueLayerTokens(instName)
+        if (tokenPair == null) {
+            failCount++
+            Log.e("DashboardScreen", "No stored tokens found for $instName")
+            return@forEach
+        }
+
+        if (!processedInstitutions.contains(instName)) {
+            // Perform token refresh swap
+            val refreshed = api.refreshAccessToken(clientId, clientSecret, tokenPair.second)
+            if (refreshed != null) {
+                tokenPair = refreshed
+                repository.saveTrueLayerTokens(instName, refreshed.first, refreshed.second)
+                processedInstitutions.add(instName)
+            } else {
+                failCount++
+                Log.e("DashboardScreen", "Token refresh failed for $instName")
+                return@forEach
+            }
+        }
+
+        // Fetch balance
+        val newBalance = api.getAccountBalance(tokenPair.first, target.id)
+        if (newBalance != null) {
+            val updated = target.copy(balance = newBalance)
+            repository.addOrUpdateAccount(updated)
+            successCount++
+        } else {
+            failCount++
+        }
+    }
+
+    // Refresh UI list state
+    withContext(Dispatchers.Main) {
+        accounts.clear()
+        accounts.addAll(repository.getAccounts())
+        if (failCount > 0) {
+            Toast.makeText(context, "Synced: $successCount succeeded, $failCount failed.", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(context, "Synced $successCount accounts successfully!", Toast.LENGTH_SHORT).show()
         }
     }
 }

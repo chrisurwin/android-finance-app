@@ -157,6 +157,19 @@ class FinanceRepository(private val context: Context) {
         dataPrefs.edit().remove("last_integration_error").apply()
     }
 
+    fun saveTrueLayerTokens(institutionName: String, accessToken: String, refreshToken: String) {
+        securePrefs.edit()
+            .putString("token_access_${institutionName.lowercase()}", accessToken)
+            .putString("token_refresh_${institutionName.lowercase()}", refreshToken)
+            .apply()
+    }
+
+    fun getTrueLayerTokens(institutionName: String): Pair<String, String>? {
+        val access = securePrefs.getString("token_access_${institutionName.lowercase()}", "") ?: ""
+        val refresh = securePrefs.getString("token_refresh_${institutionName.lowercase()}", "") ?: ""
+        return if (access.isNotEmpty() && refresh.isNotEmpty()) Pair(access, refresh) else null
+    }
+
     fun getDrawdownPreferences(): DrawdownPreferences {
         val json = dataPrefs.getString("drawdown", null)
         if (json != null) {

@@ -103,7 +103,8 @@ class MainActivity : ComponentActivity() {
                         
                         val result = api.exchangeCodeForToken(clientId, clientSecret, code)
                         if (result.isSuccess) {
-                            val (accessToken, _) = result.getOrThrow()
+                            val (accessToken, refreshToken) = result.getOrThrow()
+                            repository.saveTrueLayerTokens(institutionName, accessToken, refreshToken)
                             val accounts = api.getAccounts(accessToken)
                             if (accounts.isNotEmpty()) {
                                 var successCount = 0

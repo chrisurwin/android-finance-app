@@ -159,17 +159,17 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                     onClick = {
                         try {
                             val inst = selectedInstitution ?: return@Button
+                            if (accountNumberInput.trim().isEmpty()) {
+                                Toast.makeText(context, "Account Number is required.", Toast.LENGTH_LONG).show()
+                                return@Button
+                            }
                             val balanceVal = balanceInput.toDoubleOrNull() ?: 0.0
                             val monthlyVal = monthlyContribution.toDoubleOrNull() ?: 0.0
                             val employerVal = employerContribution.toDoubleOrNull() ?: 0.0
                             val interestVal = interestRate.toDoubleOrNull() ?: 0.0
                             val amcVal = amc.toDoubleOrNull() ?: 0.0
 
-                            val accountId = if (accountNumberInput.trim().isNotEmpty()) {
-                                "${inst.name.lowercase()}-${accountNumberInput.trim().lowercase()}"
-                            } else {
-                                "${inst.name.lowercase()}-${accountName.trim().lowercase().replace("\\s+".toRegex(), "-")}"
-                            }
+                            val accountId = "${inst.name.lowercase()}-${accountNumberInput.trim().lowercase()}"
 
                             val newAccount = Account(
                                 id = accountId,
