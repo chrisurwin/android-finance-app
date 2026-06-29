@@ -18,19 +18,21 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
     
     private val parser = Json { ignoreUnknownKeys = true }
 
-    // Swap temporary authorization code for persistent access tokens
+    // Swap temporary authorization code for persistent access tokens, returning a Result to propagate errors
     fun exchangeCodeForToken(
         clientId: String,
         clientSecret: String,
         code: String,
         redirectUri: String = "financeapp://truelayer-callback"
-    ): Pair<String, String>? { // Returns Pair(AccessToken, RefreshToken)
+    ): Result<Pair<String, String>> { // Returns Pair(AccessToken, RefreshToken)
+        val cleanId = clientId.trim()
+        val cleanSecret = clientSecret.trim()
         val formBody = FormBody.Builder()
             .add("grant_type", "authorization_code")
-            .add("client_id", clientId)
-            .add("client_secret", clientSecret)
-            .add("redirect_uri", redirectUri)
-            .add("code", code)
+            .add("client_id", cleanId)
+            .add("client_secret", cleanSecret)
+            .add("redirect_uri", redirectUri.trim())
+            .add("code", code.trim())
             .build()
 
         val request = Request.Builder()
@@ -43,26 +45,30 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
                 val bodyStr = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
                     Log.e("TrueLayerApi", "Code exchange failed (HTTP ${response.code}): $bodyStr")
-                    return null
+                    Result.failure(Exception("HTTP ${response.code}: $bodyStr"))
+                } else {
+                    val json = parser.parseToJsonElement(bodyStr).jsonObject
+                    val access = json["access_token"]?.jsonPrimitive?.contentOrNull 
+                        ?: return Result.failure(Exception("Missing access_token in response"))
+                    val refresh = json["refresh_token"]?.jsonPrimitive?.contentOrNull ?: ""
+                    Result.success(Pair(access, refresh))
                 }
-                val json = parser.parseToJsonElement(bodyStr).jsonObject
-                val access = json["access_token"]?.jsonPrimitive?.contentOrNull ?: return null
-                val refresh = json["refresh_token"]?.jsonPrimitive?.contentOrNull ?: ""
-                Pair(access, refresh)
             }
         } catch (e: IOException) {
             Log.e("TrueLayerApi", "Code exchange connection exception", e)
-            null
+            Result.failure(e)
         }
     }
 
     // Swaps refresh token for a new access token
     fun refreshAccessToken(clientId: String, clientSecret: String, refreshToken: String): Pair<String, String>? {
+        val cleanId = clientId.trim()
+        val cleanSecret = clientSecret.trim()
         val formBody = FormBody.Builder()
             .add("grant_type", "refresh_token")
-            .add("client_id", clientId)
-            .add("client_secret", clientSecret)
-            .add("refresh_token", refreshToken)
+            .add("client_id", cleanId)
+            .add("client_secret", cleanSecret)
+            .add("refresh_token", refreshToken.trim())
             .build()
 
         val request = Request.Builder()
@@ -92,7 +98,7 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
     fun getAccounts(accessToken: String): List<Pair<String, String>> { // Returns list of Pair(AccountID, AccountDisplayName)
         val request = Request.Builder()
             .url("$dataUrl/data/v1/accounts")
-            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Authorization", "Bearer ${accessToken.trim()}")
             .get()
             .build()
 
@@ -121,8 +127,8 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
     // Fetches account balance
     fun getAccountBalance(accessToken: String, accountId: String): Double? {
         val request = Request.Builder()
-            .url("$dataUrl/data/v1/accounts/$accountId/balance")
-            .addHeader("Authorization", "Bearer $accessToken")
+            .url("$dataUrl/data/v1/accounts/${accountId.trim()}/balance")
+            .addHeader("Authorization", "Bearer ${accessToken.trim()}")
             .get()
             .build()
 

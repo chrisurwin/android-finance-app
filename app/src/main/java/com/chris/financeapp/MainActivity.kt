@@ -99,9 +99,9 @@ class MainActivity : ComponentActivity() {
                     val client = OkHttpClient()
                     val api = TrueLayerApi(client, isSandbox)
                     
-                    val tokenPair = api.exchangeCodeForToken(clientId, clientSecret, code)
-                    if (tokenPair != null) {
-                        val (accessToken, _) = tokenPair
+                    val result = api.exchangeCodeForToken(clientId, clientSecret, code)
+                    if (result.isSuccess) {
+                        val (accessToken, _) = result.getOrThrow()
                         val accounts = api.getAccounts(accessToken)
                         if (accounts.isNotEmpty()) {
                             var successCount = 0
@@ -140,8 +140,10 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } else {
+                        val exception = result.exceptionOrNull()
+                        val errorMsg = exception?.message ?: "Unknown error"
                         launch(Dispatchers.Main) {
-                            Toast.makeText(applicationContext, "Open Banking code exchange failed.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(applicationContext, "Open Banking code exchange failed: $errorMsg", Toast.LENGTH_LONG).show()
                         }
                     }
                     repository.clearPendingRequisition()
