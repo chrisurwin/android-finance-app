@@ -18,6 +18,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +49,7 @@ import okhttp3.OkHttpClient
 @Composable
 fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
     var selectedInstitution by remember { mutableStateOf<Institution?>(null) }
     var showWebView by remember { mutableStateOf(false) }
@@ -258,9 +261,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                     ) {
                         TextButton(
                             onClick = {
-                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                val clip = android.content.ClipData.newPlainText("TrueLayer Error", lastError)
-                                clipboard.setPrimaryClip(clip)
+                                clipboardManager.setText(AnnotatedString(lastError))
                                 Toast.makeText(context, "Error copied to clipboard", Toast.LENGTH_SHORT).show()
                             }
                         ) {
