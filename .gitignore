@@ -1,0 +1,24 @@
+# Built artifacts
+**/build/
+*.apk
+*.aar
+*.aab
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+.gradle/
+.kotlin/
+.vscode/
+
+# Local configuration file (contains local SDK paths, etc.)
+local.properties
+
+# OS generated files
+.DS_Store
+.DS_Store?
+ehthumbs.db
+Icon?
+Thumbs.db
