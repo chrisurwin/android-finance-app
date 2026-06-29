@@ -372,12 +372,13 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                             Institution.FIRST_DIRECT -> "uk-ob-first-direct"
                                             Institution.CHASE -> "ob-chase"
                                             Institution.JP_ORGAN -> "ob-jpmorgan-wealth"
+                                            Institution.STARLING -> "uk-oauth-starling"
                                             else -> "uk-ob-all"
                                         }
                                     }
                                     val redirectUrl = "financeapp://truelayer-callback"
                                     val encodedRedirect = java.net.URLEncoder.encode(redirectUrl, "UTF-8")
-                                    val authLink = "$authBaseUrl/?response_type=code&client_id=$id&redirect_uri=$encodedRedirect&scope=info%20accounts%20balance%20offline_access&providers=$providersParam"
+                                    val authLink = "$authBaseUrl/?response_type=code&client_id=$id&redirect_uri=$encodedRedirect&scope=accounts%20balance%20offline_access&providers=$providersParam"
 
                                     // Save pending state so MainActivity knows what bank is being linked when they return
                                     repository.savePendingRequisition("pending", inst.name)

@@ -9,7 +9,8 @@ enum class Institution(val displayName: String, val category: String) {
     CHASE("Chase", "Bank"),
     JP_ORGAN("JP Morgan Personal Investing", "Investment"),
     AVIVA("Aviva", "Pension"),
-    TOWERS_WATSON("Towers Watson Lifesight", "Pension")
+    TOWERS_WATSON("Towers Watson Lifesight", "Pension"),
+    STARLING("Starling Bank", "Bank")
 }
 
 @Serializable
