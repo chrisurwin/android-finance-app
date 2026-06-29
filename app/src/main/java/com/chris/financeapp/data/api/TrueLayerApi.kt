@@ -1,5 +1,6 @@
 package com.chris.financeapp.data.api
 
+import android.util.Base64
 import android.util.Log
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -18,25 +19,29 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
     
     private val parser = Json { ignoreUnknownKeys = true }
 
-    // Swap temporary authorization code for persistent access tokens, returning a Result to propagate errors
+    // Swap temporary authorization code for persistent access tokens, using HTTP Basic Authentication
     fun exchangeCodeForToken(
         clientId: String,
         clientSecret: String,
         code: String,
         redirectUri: String = "financeapp://truelayer-callback"
-    ): Result<Pair<String, String>> { // Returns Pair(AccessToken, RefreshToken)
+    ): Result<Pair<String, String>> {
         val cleanId = clientId.trim()
         val cleanSecret = clientSecret.trim()
+        
+        val credentials = "$cleanId:$cleanSecret"
+        val base64Credentials = Base64.encodeToString(credentials.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val authHeader = "Basic $base64Credentials"
+
         val formBody = FormBody.Builder()
             .add("grant_type", "authorization_code")
-            .add("client_id", cleanId)
-            .add("client_secret", cleanSecret)
             .add("redirect_uri", redirectUri.trim())
             .add("code", code.trim())
             .build()
 
         val request = Request.Builder()
             .url("$authUrl/connect/token")
+            .addHeader("Authorization", authHeader)
             .post(formBody)
             .build()
 
@@ -60,19 +65,23 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
         }
     }
 
-    // Swaps refresh token for a new access token
+    // Swaps refresh token for a new access token, using HTTP Basic Authentication
     fun refreshAccessToken(clientId: String, clientSecret: String, refreshToken: String): Pair<String, String>? {
         val cleanId = clientId.trim()
         val cleanSecret = clientSecret.trim()
+        
+        val credentials = "$cleanId:$cleanSecret"
+        val base64Credentials = Base64.encodeToString(credentials.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val authHeader = "Basic $base64Credentials"
+
         val formBody = FormBody.Builder()
             .add("grant_type", "refresh_token")
-            .add("client_id", cleanId)
-            .add("client_secret", cleanSecret)
             .add("refresh_token", refreshToken.trim())
             .build()
 
         val request = Request.Builder()
             .url("$authUrl/connect/token")
+            .addHeader("Authorization", authHeader)
             .post(formBody)
             .build()
 
