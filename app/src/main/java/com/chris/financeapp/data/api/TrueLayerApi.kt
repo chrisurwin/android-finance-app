@@ -1,5 +1,6 @@
 package com.chris.financeapp.data.api
 
+import android.util.Log
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,15 +40,18 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
 
         return try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val bodyStr = response.body?.string() ?: return null
+                val bodyStr = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    Log.e("TrueLayerApi", "Code exchange failed (HTTP ${response.code}): $bodyStr")
+                    return null
+                }
                 val json = parser.parseToJsonElement(bodyStr).jsonObject
                 val access = json["access_token"]?.jsonPrimitive?.contentOrNull ?: return null
                 val refresh = json["refresh_token"]?.jsonPrimitive?.contentOrNull ?: ""
                 Pair(access, refresh)
             }
         } catch (e: IOException) {
-            e.printStackTrace()
+            Log.e("TrueLayerApi", "Code exchange connection exception", e)
             null
         }
     }
@@ -68,15 +72,18 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
 
         return try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val bodyStr = response.body?.string() ?: return null
+                val bodyStr = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    Log.e("TrueLayerApi", "Token refresh failed (HTTP ${response.code}): $bodyStr")
+                    return null
+                }
                 val json = parser.parseToJsonElement(bodyStr).jsonObject
                 val access = json["access_token"]?.jsonPrimitive?.contentOrNull ?: return null
                 val refresh = json["refresh_token"]?.jsonPrimitive?.contentOrNull ?: refreshToken
                 Pair(access, refresh)
             }
         } catch (e: IOException) {
-            e.printStackTrace()
+            Log.e("TrueLayerApi", "Token refresh connection exception", e)
             null
         }
     }
@@ -91,8 +98,11 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
 
         return try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return emptyList()
-                val bodyStr = response.body?.string() ?: return emptyList()
+                val bodyStr = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    Log.e("TrueLayerApi", "Accounts fetch failed (HTTP ${response.code}): $bodyStr")
+                    return emptyList()
+                }
                 val json = parser.parseToJsonElement(bodyStr).jsonObject
                 val results = json["results"]?.jsonArray ?: return emptyList()
                 results.mapNotNull { result ->
@@ -103,7 +113,7 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
                 }
             }
         } catch (e: IOException) {
-            e.printStackTrace()
+            Log.e("TrueLayerApi", "Accounts fetch connection exception", e)
             emptyList()
         }
     }
@@ -118,8 +128,11 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
 
         return try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val bodyStr = response.body?.string() ?: return null
+                val bodyStr = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    Log.e("TrueLayerApi", "Balance fetch failed (HTTP ${response.code}): $bodyStr")
+                    return null
+                }
                 val json = parser.parseToJsonElement(bodyStr).jsonObject
                 val results = json["results"]?.jsonArray ?: return null
                 if (results.isEmpty()) return null
@@ -127,7 +140,7 @@ class TrueLayerApi(private val client: OkHttpClient, private val isSandbox: Bool
                 balanceObj["current"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
             }
         } catch (e: IOException) {
-            e.printStackTrace()
+            Log.e("TrueLayerApi", "Balance fetch connection exception", e)
             null
         }
     }
