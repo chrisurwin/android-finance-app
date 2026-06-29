@@ -271,7 +271,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 showWebView = true
                                 clickScrapeActive = false
                                 webViewUrl = if (inst == Institution.AVIVA) {
-                                    "https://my.aviva.co.uk/"
+                                     "https://www.direct.aviva.co.uk/MyAccount/login"
                                 } else {
                                     "https://www.lifesight.com"
                                 }
