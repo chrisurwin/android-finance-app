@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -39,14 +41,19 @@ fun DonutChart(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
             val minSize = minOf(width, height)
-            val strokeWidth = 32.dp.toPx()
+            val strokeWidth = 16.dp.toPx()
             
-            val boundingBox = Size(minSize - strokeWidth, minSize - strokeWidth)
-            val offset = Offset((width - minSize + strokeWidth) / 2, (height - minSize + strokeWidth) / 2)
+            // Apply a small safety padding inside the canvas space
+            val padding = strokeWidth / 2
+            val boundingBox = Size(minSize - strokeWidth - padding * 2, minSize - strokeWidth - padding * 2)
+            val offset = Offset(
+                (width - minSize + strokeWidth + padding * 2) / 2,
+                (height - minSize + strokeWidth + padding * 2) / 2
+            )
             
             if (total == 0.0) {
                 // Draw a simple gray placeholder donut
@@ -78,23 +85,24 @@ fun DonutChart(
         }
         
         // Center text container
-        Box(contentAlignment = Alignment.Center) {
-            androidx.compose.foundation.layout.Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = centerText,
-                    color = TextSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = centerValue,
-                    color = TextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+        androidx.compose.foundation.layout.Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp) // Provide spacing to avoid overlapping the donut ring
+        ) {
+            Text(
+                text = centerText.uppercase(),
+                color = TextSecondary,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = centerValue,
+                color = TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
         }
     }
 }

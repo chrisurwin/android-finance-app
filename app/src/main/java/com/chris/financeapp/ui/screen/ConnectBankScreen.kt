@@ -69,6 +69,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
     // Dialog Fields
     var lastError by remember { mutableStateOf(repository.getLastIntegrationError()) }
     var accountName by remember { mutableStateOf("") }
+    var accountNumberInput by remember { mutableStateOf("") }
     var selectedType by remember { mutableStateOf(AccountType.CURRENT) }
     var balanceInput by remember { mutableStateOf("") }
     var monthlyContribution by remember { mutableStateOf("0") }
@@ -88,6 +89,13 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                         value = accountName,
                         onValueChange = { accountName = it },
                         label = { Text("Account Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = accountNumberInput,
+                        onValueChange = { accountNumberInput = it },
+                        label = { Text("Account Number (optional)") },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -157,8 +165,14 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                             val interestVal = interestRate.toDoubleOrNull() ?: 0.0
                             val amcVal = amc.toDoubleOrNull() ?: 0.0
 
+                            val accountId = if (accountNumberInput.trim().isNotEmpty()) {
+                                "${inst.name.lowercase()}-${accountNumberInput.trim().lowercase()}"
+                            } else {
+                                "${inst.name.lowercase()}-${accountName.trim().lowercase().replace("\\s+".toRegex(), "-")}"
+                            }
+
                             val newAccount = Account(
-                                id = UUID.randomUUID().toString(),
+                                id = accountId,
                                 name = accountName,
                                 type = selectedType,
                                 institution = inst,
@@ -167,7 +181,8 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 employerContribution = employerVal,
                                 interestRate = interestVal,
                                 annualManagementCharge = amcVal,
-                                isConnected = true
+                                isConnected = true,
+                                accountNumber = accountNumberInput.trim()
                             )
                             repository.addOrUpdateAccount(newAccount)
                             showSetupDialog = false
@@ -341,6 +356,8 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 selectedType = AccountType.PENSION
                                 interestRate = "6.0" // Default assumptions
                                 amc = if (inst == Institution.AVIVA) "0.75" else "0.4"
+                                accountName = inst.displayName
+                                accountNumberInput = ""
                             } else {
                                 // Open Banking Banks: check for TrueLayer keys
                                 val (id, secret) = repository.getTrueLayerCredentials()
@@ -372,6 +389,8 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                     context.startActivity(browserIntent)
                                 } else {
                                     // Prefill dummy values to make manual/simulated demo flow look premium
+                                    accountName = inst.displayName
+                                    accountNumberInput = ""
                                     selectedType = if (inst == Institution.JP_ORGAN) AccountType.ISA else AccountType.CURRENT
                                     balanceInput = when(inst) {
                                         Institution.HSBC -> "15000.0"

@@ -26,7 +26,7 @@ import java.util.Locale
 @Composable
 fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) {
     val context = LocalContext.current
-    val accounts = remember { repository.getAccounts() }
+    val accounts = remember { repository.getAccounts().filter { it.isIncluded } }
     val person = remember { repository.getPerson() }
     val assumptions = remember { repository.getInvestmentAssumptions() }
     val drawdown = remember { repository.getDrawdownPreferences() }

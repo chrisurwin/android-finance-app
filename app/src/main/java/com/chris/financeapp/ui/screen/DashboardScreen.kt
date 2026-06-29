@@ -67,12 +67,12 @@ fun DashboardScreen(
         }
     }
 
-    val totalPortfolioVal = accounts.sumOf { it.balance }
+    val totalPortfolioVal = accounts.filter { it.isIncluded }.sumOf { it.balance }
     
-    val currentVal = accounts.filter { it.type == AccountType.CURRENT }.sumOf { it.balance }
-    val isaVal = accounts.filter { it.type == AccountType.ISA }.sumOf { it.balance }
-    val investmentVal = accounts.filter { it.type == AccountType.GENERAL_INVESTMENT }.sumOf { it.balance }
-    val pensionVal = accounts.filter { it.type == AccountType.PENSION }.sumOf { it.balance }
+    val currentVal = accounts.filter { it.isIncluded && it.type == AccountType.CURRENT }.sumOf { it.balance }
+    val isaVal = accounts.filter { it.isIncluded && it.type == AccountType.ISA }.sumOf { it.balance }
+    val investmentVal = accounts.filter { it.isIncluded && it.type == AccountType.GENERAL_INVESTMENT }.sumOf { it.balance }
+    val pensionVal = accounts.filter { it.isIncluded && it.type == AccountType.PENSION }.sumOf { it.balance }
 
     val formatter = NumberFormat.getCurrencyInstance(Locale.UK)
 
@@ -186,35 +186,129 @@ fun DashboardScreen(
             Triple(AccountType.GENERAL_INVESTMENT, ColorInvestment, investmentVal),
             Triple(AccountType.PENSION, ColorPension, pensionVal)
         ).forEach { (type, color, valSum) ->
+            val typeAccounts = accounts.filter { it.type == type }
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardSurface),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Category Header
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .background(color, RoundedCornerShape(6.dp))
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .background(color, RoundedCornerShape(6.dp))
+                            )
+                            Text(
+                                text = type.displayName,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 16.sp
+                            )
+                        }
                         Text(
-                            text = type.displayName,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
+                            text = formatter.format(valSum),
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            fontSize = 16.sp
                         )
                     }
-                    Text(
-                        text = formatter.format(valSum),
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
+                    
+                    if (typeAccounts.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider(color = SlateBg.copy(alpha = 0.5f), thickness = 1.dp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            typeAccounts.forEach { account ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Checkbox(
+                                            checked = account.isIncluded,
+                                            onCheckedChange = { isChecked ->
+                                                val updated = account.copy(isIncluded = isChecked)
+                                                repository.addOrUpdateAccount(updated)
+                                                
+                                                // Refresh local list state
+                                                accounts.clear()
+                                                accounts.addAll(repository.getAccounts())
+                                            },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = color,
+                                                uncheckedColor = TextSecondary.copy(alpha = 0.5f)
+                                            ),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Column {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = account.name,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.6f),
+                                                    fontSize = 14.sp
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                // Institution Tag
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(
+                                                            if (account.isIncluded) color.copy(alpha = 0.1f) else SlateBg,
+                                                            RoundedCornerShape(4.dp)
+                                                        )
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = account.institution.displayName,
+                                                        fontSize = 10.sp,
+                                                        color = if (account.isIncluded) color else TextSecondary.copy(alpha = 0.6f),
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                            if (account.accountNumber.isNotEmpty()) {
+                                                Text(
+                                                    text = "No: ${account.accountNumber}",
+                                                    fontSize = 11.sp,
+                                                    color = TextSecondary.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = formatter.format(account.balance),
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.5f),
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "No accounts linked",
+                            fontSize = 12.sp,
+                            color = TextSecondary.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(start = 24.dp)
+                        )
+                    }
                 }
             }
         }

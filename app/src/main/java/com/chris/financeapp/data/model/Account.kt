@@ -32,5 +32,7 @@ data class Account(
     val interestRate: Double = 0.0, // interest rate or growth rate (annual %)
     val annualManagementCharge: Double = 0.0, // AMC % (for investments/pensions)
     val isConnected: Boolean = false,
-    val personId: String = "person-1" // matching pension logic (Chris / Lisa)
+    val personId: String = "person-1", // matching pension logic (Chris / Lisa)
+    val accountNumber: String = "",
+    val isIncluded: Boolean = true
 )
