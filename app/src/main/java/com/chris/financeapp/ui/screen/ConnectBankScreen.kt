@@ -77,8 +77,10 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
     var balanceInput by remember { mutableStateOf("") }
     var monthlyContribution by remember { mutableStateOf("0") }
     var employerContribution by remember { mutableStateOf("0") }
-    var interestRate by remember { mutableStateOf("0.0") }
-    var amc by remember { mutableStateOf("0.0") }
+    var interestRate by remember { mutableStateOf("0") }
+    var amc by remember { mutableStateOf("0") }
+    var payoutAgeInput by remember { mutableStateOf("65") }
+    var isInflationLinkedInput by remember { mutableStateOf(true) }
 
     val institutions = remember { Institution.values() }
 
@@ -224,40 +226,61 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                     OutlinedTextField(
                         value = balanceInput,
                         onValueChange = { balanceInput = it },
-                        label = { Text("Current Balance (£)") },
+                        label = { Text(if (selectedType == AccountType.FINAL_SALARY) "Annual Payout (£/year)" else "Current Balance (£)") },
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    OutlinedTextField(
-                        value = monthlyContribution,
-                        onValueChange = { monthlyContribution = it },
-                        label = { Text("Your Monthly Contribution (£)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (selectedType == AccountType.PENSION) {
+                    if (selectedType != AccountType.FINAL_SALARY) {
                         OutlinedTextField(
-                            value = employerContribution,
-                            onValueChange = { employerContribution = it },
-                            label = { Text("Employer Monthly Contribution (£)") },
+                            value = monthlyContribution,
+                            onValueChange = { monthlyContribution = it },
+                            label = { Text("Your Monthly Contribution (£)") },
                             modifier = Modifier.fillMaxWidth()
                         )
-                    }
 
-                    OutlinedTextField(
-                        value = interestRate,
-                        onValueChange = { interestRate = it },
-                        label = { Text("Expected Annual Return / Interest Rate (%)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                        if (selectedType == AccountType.PENSION) {
+                            OutlinedTextField(
+                                value = employerContribution,
+                                onValueChange = { employerContribution = it },
+                                label = { Text("Employer Monthly Contribution (£)") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
 
-                    if (selectedType == AccountType.PENSION || selectedType == AccountType.GENERAL_INVESTMENT) {
                         OutlinedTextField(
-                            value = amc,
-                            onValueChange = { amc = it },
-                            label = { Text("Annual Management Charge (AMC %)") },
+                            value = interestRate,
+                            onValueChange = { interestRate = it },
+                            label = { Text("Expected Annual Return / Interest Rate (%)") },
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        if (selectedType == AccountType.PENSION || selectedType == AccountType.GENERAL_INVESTMENT) {
+                            OutlinedTextField(
+                                value = amc,
+                                onValueChange = { amc = it },
+                                label = { Text("Annual Management Charge (AMC %)") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = payoutAgeInput,
+                            onValueChange = { payoutAgeInput = it },
+                            label = { Text("Payout Age (Years Old)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Checkbox(
+                                checked = isInflationLinkedInput,
+                                onCheckedChange = { isInflationLinkedInput = it }
+                            )
+                            Text("Inflation Linked (Indexed)", color = TextPrimary)
+                        }
                     }
                 }
             },
@@ -266,7 +289,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                     onClick = {
                         try {
                             val inst = selectedInstitution ?: return@Button
-                            if (accountNumberInput.trim().isEmpty()) {
+                            if (accountNumberInput.trim().isEmpty() && selectedType != AccountType.FINAL_SALARY) {
                                 Toast.makeText(context, "Account Number is required.", Toast.LENGTH_LONG).show()
                                 return@Button
                             }
@@ -276,7 +299,11 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                             val interestVal = interestRate.toDoubleOrNull() ?: 0.0
                             val amcVal = amc.toDoubleOrNull() ?: 0.0
 
-                            val accountId = "${inst.name.lowercase()}-${accountNumberInput.trim().lowercase()}"
+                            val accountId = if (selectedType == AccountType.FINAL_SALARY && accountNumberInput.trim().isEmpty()) {
+                                "${inst.name.lowercase()}-db-${java.util.UUID.randomUUID().toString().take(8)}"
+                            } else {
+                                "${inst.name.lowercase()}-${accountNumberInput.trim().lowercase()}"
+                            }
 
                             val newAccount = Account(
                                 id = accountId,
@@ -290,7 +317,9 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 annualManagementCharge = amcVal,
                                 isConnected = true,
                                 personId = selectedOwner,
-                                accountNumber = accountNumberInput.trim()
+                                accountNumber = accountNumberInput.trim(),
+                                payoutAge = payoutAgeInput.toIntOrNull() ?: 65,
+                                isInflationLinked = isInflationLinkedInput
                             )
                             repository.addOrUpdateAccount(newAccount)
                             showSetupDialog = false

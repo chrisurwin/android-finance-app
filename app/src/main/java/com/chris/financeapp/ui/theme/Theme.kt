@@ -27,6 +27,7 @@ val ColorCurrent = Color(0xFF10B981) // Emerald
 val ColorISA = Color(0xFF06B6D4)     // Cyan
 val ColorInvestment = Color(0xFF8B5CF6) // Purple
 val ColorPension = Color(0xFFF59E0B)    // Amber
+val ColorFinalSalary = Color(0xFFEC4899) // Pink / Violet
 
 private val DarkColorScheme = darkColorScheme(
     primary = PrimaryIndigo,

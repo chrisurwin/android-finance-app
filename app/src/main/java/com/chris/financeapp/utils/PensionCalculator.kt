@@ -83,8 +83,12 @@ object PensionCalculator {
         var dcPensions = accounts.filter { it.type == AccountType.PENSION }
             .map { it.copy() }
             .toMutableList()
+
+        val finalSalaries = accounts.filter { it.type == AccountType.FINAL_SALARY }
+            .map { it.copy() }
+            .toList()
             
-        var savings = accounts.filter { it.type != AccountType.PENSION }
+        var savings = accounts.filter { it.type != AccountType.PENSION && it.type != AccountType.FINAL_SALARY }
             .map { it.copy() }
             .toMutableList()
 
@@ -132,12 +136,31 @@ object PensionCalculator {
                 // Calculate State Pension (from age 67) for each retired person
                 val statePension1 = if (age1 >= STATE_PENSION_AGE) calculateStatePension(35) * inflationFactor else 0.0
                 val statePension2 = if (age2 >= STATE_PENSION_AGE) calculateStatePension(35) * inflationFactor else 0.0
+                
+                // Calculate Defined Benefit (Final Salary) payouts
+                var dbIncome1 = 0.0
+                var dbIncome2 = 0.0
+                var totalDBIncome = 0.0
+                for (db in finalSalaries) {
+                    val isOwnerEligible = if (db.personId == "person-2") age2 >= db.payoutAge else age1 >= db.payoutAge
+                    if (isOwnerEligible) {
+                        val payout = if (db.isInflationLinked) db.balance * inflationFactor else db.balance
+                        totalDBIncome += payout
+                        if (db.personId == "person-2") {
+                            dbIncome2 += payout
+                        } else {
+                            dbIncome1 += payout
+                        }
+                    }
+                }
+
                 val totalStatePension = statePension1 + statePension2
+                val totalGuaranteedIncome = totalStatePension + totalDBIncome
 
                 var taxFreeIncome = 0.0
-                var taxableIncome1 = statePension1
-                var taxableIncome2 = statePension2
-                var remainingTarget = max(0.0, targetIncome - totalStatePension)
+                var taxableIncome1 = statePension1 + dbIncome1
+                var taxableIncome2 = statePension2 + dbIncome2
+                var remainingTarget = max(0.0, targetIncome - totalGuaranteedIncome)
 
                 // UK Tax-Efficient Drawdown Strategy:
                 // Step 1: Harvest pension tax-free up to each retired person's remaining Personal Allowance limit (gross = allowance / 0.75)

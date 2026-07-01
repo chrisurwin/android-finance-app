@@ -19,7 +19,8 @@ enum class AccountType(val displayName: String) {
     CURRENT("Current Account"),
     ISA("ISA"),
     GENERAL_INVESTMENT("General Investment"),
-    PENSION("Pension")
+    PENSION("Pension"),
+    FINAL_SALARY("Final Salary")
 }
 
 @Serializable
@@ -36,5 +37,7 @@ data class Account(
     val isConnected: Boolean = false,
     val personId: String = "person-1", // matching pension logic (Chris / Lisa)
     val accountNumber: String = "",
-    val isIncluded: Boolean = true
+    val isIncluded: Boolean = true,
+    val payoutAge: Int = 65,
+    val isInflationLinked: Boolean = true
 )

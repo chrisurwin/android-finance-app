@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -53,6 +54,8 @@ fun DashboardScreen(
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
+    var editingAccount by remember { mutableStateOf<Account?>(null) }
+    var editBalanceValue by remember { mutableStateOf("") }
 
     // Load accounts on view launch
     LaunchedEffect(Unit) {
@@ -77,12 +80,13 @@ fun DashboardScreen(
         })
     }
 
-    val totalPortfolioVal = accounts.filter { it.isIncluded }.sumOf { it.balance }
+    val totalPortfolioVal = accounts.filter { it.isIncluded && it.type != AccountType.FINAL_SALARY }.sumOf { it.balance }
     
     val currentVal = accounts.filter { it.isIncluded && it.type == AccountType.CURRENT }.sumOf { it.balance }
     val isaVal = accounts.filter { it.isIncluded && it.type == AccountType.ISA }.sumOf { it.balance }
     val investmentVal = accounts.filter { it.isIncluded && it.type == AccountType.GENERAL_INVESTMENT }.sumOf { it.balance }
     val pensionVal = accounts.filter { it.isIncluded && it.type == AccountType.PENSION }.sumOf { it.balance }
+    val finalSalaryVal = accounts.filter { it.isIncluded && it.type == AccountType.FINAL_SALARY }.sumOf { it.balance }
 
     val formatter = NumberFormat.getCurrencyInstance(Locale.UK)
 
@@ -219,7 +223,8 @@ fun DashboardScreen(
             Triple(AccountType.CURRENT, ColorCurrent, currentVal),
             Triple(AccountType.ISA, ColorISA, isaVal),
             Triple(AccountType.GENERAL_INVESTMENT, ColorInvestment, investmentVal),
-            Triple(AccountType.PENSION, ColorPension, pensionVal)
+            Triple(AccountType.PENSION, ColorPension, pensionVal),
+            Triple(AccountType.FINAL_SALARY, ColorFinalSalary, finalSalaryVal)
         ).forEach { (type, color, valSum) ->
             val typeAccounts = accounts.filter { it.type == type }
             Card(
@@ -350,6 +355,25 @@ fun DashboardScreen(
                                                         maxLines = 1
                                                     )
                                                 }
+                                                if (account.type == AccountType.FINAL_SALARY) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .background(
+                                                                ColorFinalSalary.copy(alpha = 0.15f),
+                                                                RoundedCornerShape(4.dp)
+                                                            )
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "Starts at Age ${account.payoutAge}",
+                                                            fontSize = 10.sp,
+                                                            color = ColorFinalSalary,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
                                             }
                                             if (account.accountNumber.isNotEmpty()) {
                                                 Text(
@@ -367,12 +391,31 @@ fun DashboardScreen(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Text(
-                                            text = formatter.format(account.balance),
+                                            text = if (account.type == AccountType.FINAL_SALARY) {
+                                                "${formatter.format(account.balance)} / yr"
+                                            } else {
+                                                formatter.format(account.balance)
+                                            },
                                             fontWeight = FontWeight.SemiBold,
                                             color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.5f),
                                             fontSize = 14.sp
                                         )
                                         
+                                        IconButton(
+                                            onClick = {
+                                                editingAccount = account
+                                                editBalanceValue = account.balance.toString()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Edit balance",
+                                                tint = TextSecondary.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+
                                         if (account.isConnected && account.institution.category == "Bank") {
                                             IconButton(
                                                 onClick = {
@@ -452,6 +495,52 @@ fun DashboardScreen(
                 Text("Future Projections")
             }
         }
+    }
+
+    // Edit Balance Dialog
+    if (editingAccount != null) {
+        val account = editingAccount!!
+        val isDB = account.type == AccountType.FINAL_SALARY
+        AlertDialog(
+            onDismissRequest = { editingAccount = null },
+            title = { Text(if (isDB) "Edit Annual Payout" else "Edit Account Balance", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter new value for ${account.name}:", color = TextSecondary, fontSize = 14.sp)
+                    OutlinedTextField(
+                        value = editBalanceValue,
+                        onValueChange = { editBalanceValue = it },
+                        label = { Text(if (isDB) "Annual Payout (£/year)" else "Balance (£)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo),
+                    onClick = {
+                        val newValue = editBalanceValue.toDoubleOrNull()
+                        if (newValue != null) {
+                            val updated = account.copy(balance = newValue)
+                            repository.addOrUpdateAccount(updated)
+                            accounts.clear()
+                            accounts.addAll(repository.getAccounts())
+                            editingAccount = null
+                        } else {
+                            Toast.makeText(context, "Please enter a valid numeric value.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingAccount = null }) {
+                    Text("Cancel", color = TextPrimary)
+                }
+            }
+        )
     }
 }
 
