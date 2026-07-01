@@ -1,6 +1,7 @@
 package com.chris.financeapp.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -289,13 +291,19 @@ fun DashboardScreen(
                                             modifier = Modifier.size(24.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Column {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
                                                 Text(
                                                     text = account.name,
                                                     fontWeight = FontWeight.SemiBold,
                                                     color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.6f),
-                                                    fontSize = 14.sp
+                                                    fontSize = 14.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 // Institution Tag
@@ -312,6 +320,32 @@ fun DashboardScreen(
                                                         fontSize = 10.sp,
                                                         color = if (account.isIncluded) color else TextSecondary.copy(alpha = 0.6f),
                                                         fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                // Ownership Tag (Clickable to Toggle!)
+                                                val isLisa = account.personId == "person-2"
+                                                val ownerName = if (isLisa) "Lisa" else "Chris"
+                                                val ownerColor = if (isLisa) Color(0xFFD946EF) else Color(0xFF6366F1)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(
+                                                            ownerColor.copy(alpha = 0.15f),
+                                                            RoundedCornerShape(4.dp)
+                                                        )
+                                                        .clickable {
+                                                            val updated = account.copy(personId = if (isLisa) "person-1" else "person-2")
+                                                            repository.addOrUpdateAccount(updated)
+                                                            accounts.clear()
+                                                            accounts.addAll(repository.getAccounts())
+                                                        }
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = ownerName,
+                                                        fontSize = 10.sp,
+                                                        color = ownerColor,
+                                                        fontWeight = FontWeight.ExtraBold
                                                     )
                                                 }
                                             }

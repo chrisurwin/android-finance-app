@@ -72,6 +72,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
     var lastError by remember { mutableStateOf(repository.getLastIntegrationError()) }
     var accountName by remember { mutableStateOf("") }
     var accountNumberInput by remember { mutableStateOf("") }
+    var selectedOwner by remember { mutableStateOf("person-1") }
     var selectedType by remember { mutableStateOf(AccountType.CURRENT) }
     var balanceInput by remember { mutableStateOf("") }
     var monthlyContribution by remember { mutableStateOf("0") }
@@ -197,6 +198,29 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                         }
                     }
 
+                    // Owner selection
+                    Text("Account Owner", fontSize = 12.sp, color = TextSecondary)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = selectedOwner == "person-1",
+                                onClick = { selectedOwner = "person-1" }
+                            )
+                            Text("Chris", color = TextPrimary)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = selectedOwner == "person-2",
+                                onClick = { selectedOwner = "person-2" }
+                            )
+                            Text("Lisa (Wife)", color = TextPrimary)
+                        }
+                    }
+
                     OutlinedTextField(
                         value = balanceInput,
                         onValueChange = { balanceInput = it },
@@ -265,6 +289,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 interestRate = interestVal,
                                 annualManagementCharge = amcVal,
                                 isConnected = true,
+                                personId = selectedOwner,
                                 accountNumber = accountNumberInput.trim()
                             )
                             repository.addOrUpdateAccount(newAccount)

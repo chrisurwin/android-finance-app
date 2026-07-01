@@ -27,11 +27,13 @@ import java.util.Locale
 fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val accounts = remember { repository.getAccounts().filter { it.isIncluded } }
-    val person = remember { repository.getPerson() }
+    val person1 = remember { repository.getPerson("person-1") }
+    val person2 = remember { repository.getPerson("person-2") }
     val assumptions = remember { repository.getInvestmentAssumptions() }
     val drawdown = remember { repository.getDrawdownPreferences() }
 
-    var retirementAge by remember { mutableStateOf(person.retirementAge) }
+    var retirementAge1 by remember { mutableStateOf(person1.retirementAge) }
+    var retirementAge2 by remember { mutableStateOf(person2.retirementAge) }
     var equityReturn by remember { mutableStateOf((assumptions.equityReturn * 100).toFloat()) }
     var inflationRate by remember { mutableStateOf((assumptions.inflationRate * 100).toFloat()) }
     var targetAnnualIncome by remember { mutableStateOf(drawdown.targetAnnualIncome) }
@@ -39,7 +41,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     val formatter = NumberFormat.getCurrencyInstance(Locale.UK)
 
     // Dynamic calculations running on parameter updates
-    val projection = remember(retirementAge, equityReturn, inflationRate, targetAnnualIncome) {
+    val projection = remember(retirementAge1, retirementAge2, equityReturn, inflationRate, targetAnnualIncome) {
         val updatedAssumptions = assumptions.copy(
             equityReturn = (equityReturn / 100.0),
             inflationRate = (inflationRate / 100.0)
@@ -51,8 +53,10 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
             accounts = accounts,
             assumptions = updatedAssumptions,
             preferences = updatedDrawdown,
-            birthYear = person.birthYear,
-            retirementAgeInput = retirementAge
+            person1 = person1,
+            person2 = person2,
+            retirementAge1 = retirementAge1,
+            retirementAge2 = retirementAge2
         )
     }
 
@@ -161,7 +165,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 }
                 
                 // Determine depletion age
-                val depletionResult = projection.results.firstOrNull { it.age >= retirementAge && (it.totalPensionValue + it.totalSavings) <= 0.0 }
+                val depletionResult = projection.results.firstOrNull { it.age >= retirementAge1 && (it.totalPensionValue + it.totalSavings) <= 0.0 }
                 val summaryText = if (depletionResult != null) {
                     "Depleted at age ${depletionResult.age}"
                 } else {
@@ -185,18 +189,43 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. Retirement Age slider
+                // 1. Chris's Retirement Age slider
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                        Text("$retirementAge Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
+                        Text("Chris's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                        Text("$retirementAge1 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
                     }
                     Slider(
-                        value = retirementAge.toFloat(),
-                        onValueChange = { retirementAge = it.toInt() },
+                        value = retirementAge1.toFloat(),
+                        onValueChange = { 
+                            retirementAge1 = it.toInt()
+                            person1.retirementAge = it.toInt()
+                            repository.savePerson(person1)
+                        },
+                        valueRange = 50f..75f,
+                        steps = 25
+                    )
+                }
+
+                // 1b. Lisa's Retirement Age slider
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Lisa's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                        Text("$retirementAge2 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
+                    }
+                    Slider(
+                        value = retirementAge2.toFloat(),
+                        onValueChange = { 
+                            retirementAge2 = it.toInt()
+                            person2.retirementAge = it.toInt()
+                            repository.savePerson(person2)
+                        },
                         valueRange = 50f..75f,
                         steps = 25
                     )
