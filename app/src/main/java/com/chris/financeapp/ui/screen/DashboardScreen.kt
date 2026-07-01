@@ -291,21 +291,22 @@ fun DashboardScreen(
                                             modifier = Modifier.size(24.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = account.name,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.6f),
+                                                fontSize = 14.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.fillMaxWidth()
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Text(
-                                                    text = account.name,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = if (account.isIncluded) TextPrimary else TextSecondary.copy(alpha = 0.6f),
-                                                    fontSize = 14.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f, fill = false)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
                                                 // Institution Tag
                                                 Box(
                                                     modifier = Modifier
@@ -319,10 +320,10 @@ fun DashboardScreen(
                                                         text = account.institution.displayName,
                                                         fontSize = 10.sp,
                                                         color = if (account.isIncluded) color else TextSecondary.copy(alpha = 0.6f),
-                                                        fontWeight = FontWeight.Bold
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.width(6.dp))
                                                 // Ownership Tag (Clickable to Toggle!)
                                                 val isLisa = account.personId == "person-2"
                                                 val ownerName = if (isLisa) "Lisa" else "Chris"
@@ -345,7 +346,8 @@ fun DashboardScreen(
                                                         text = ownerName,
                                                         fontSize = 10.sp,
                                                         color = ownerColor,
-                                                        fontWeight = FontWeight.ExtraBold
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }
@@ -353,7 +355,8 @@ fun DashboardScreen(
                                                 Text(
                                                     text = "No: ${account.accountNumber}",
                                                     fontSize = 11.sp,
-                                                    color = TextSecondary.copy(alpha = 0.7f)
+                                                    color = TextSecondary.copy(alpha = 0.7f),
+                                                    maxLines = 1
                                                 )
                                             }
                                         }
