@@ -3,6 +3,25 @@ package com.chris.financeapp.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class ProjectionType {
+    INDIVIDUAL_CHRIS,
+    INDIVIDUAL_LISA,
+    COUPLE
+}
+
+@Serializable
+enum class DrawdownStrategy {
+    STANDARD,
+    TAX_MINIMIZED
+}
+
+@Serializable
+enum class LumpSumOption {
+    UP_FRONT,
+    AS_YOU_GO
+}
+
+@Serializable
 data class Person(
     val id: String,
     val name: String,
@@ -26,7 +45,9 @@ data class DrawdownPreferences(
     var targetAnnualIncome: Double = 25000.0,
     var inflationAdjusted: Boolean = true,
     var startAge: Int = 65,
-    var endAge: Int = 95
+    var endAge: Int = 95,
+    var strategy: DrawdownStrategy = DrawdownStrategy.STANDARD,
+    var lumpSumOption: LumpSumOption = LumpSumOption.AS_YOU_GO
 )
 
 @Serializable
@@ -38,6 +59,8 @@ data class ProjectionResult(
     val annualIncome: Double,
     val netIncome: Double,
     val tax: Double,
+    val tax1: Double = 0.0, // Chris's tax component
+    val tax2: Double = 0.0, // Lisa's tax component
     val canRetire: Boolean
 )
 
@@ -45,5 +68,7 @@ data class ProjectionResult(
 data class RetirementProjection(
     val results: List<ProjectionResult>,
     val retirementAge: Int,
-    val feasible: Boolean
+    val feasible: Boolean,
+    val totalTaxPaid: Double = 0.0
 )
+

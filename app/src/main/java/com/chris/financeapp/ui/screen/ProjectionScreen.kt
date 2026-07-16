@@ -1,6 +1,7 @@
 package com.chris.financeapp.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
+import com.chris.financeapp.data.model.ProjectionType
+import com.chris.financeapp.data.model.DrawdownStrategy
+import com.chris.financeapp.data.model.LumpSumOption
 import com.chris.financeapp.data.repository.FinanceRepository
 import com.chris.financeapp.ui.components.LineChart
 import com.chris.financeapp.ui.theme.*
@@ -38,26 +42,92 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     var inflationRate by remember { mutableStateOf((assumptions.inflationRate * 100).toFloat()) }
     var targetAnnualIncome by remember { mutableStateOf(drawdown.targetAnnualIncome) }
 
+    var projectionType by remember { mutableStateOf(ProjectionType.COUPLE) }
+    var drawdownStrategy by remember { mutableStateOf(drawdown.strategy) }
+    var lumpSumOption by remember { mutableStateOf(drawdown.lumpSumOption) }
+    var showYearlyBreakdown by remember { mutableStateOf(false) }
+
     val formatter = NumberFormat.getCurrencyInstance(Locale.UK)
 
-    // Dynamic calculations running on parameter updates
-    val projection = remember(retirementAge1, retirementAge2, equityReturn, inflationRate, targetAnnualIncome) {
-        val updatedAssumptions = assumptions.copy(
+    // Helper for base assumptions
+    val baseAssumptions = remember(equityReturn, inflationRate) {
+        assumptions.copy(
             equityReturn = (equityReturn / 100.0),
             inflationRate = (inflationRate / 100.0)
         )
+    }
+
+    // Dynamic calculations running on parameter updates
+    val projection = remember(projectionType, retirementAge1, retirementAge2, baseAssumptions, targetAnnualIncome, drawdownStrategy, lumpSumOption) {
         val updatedDrawdown = drawdown.copy(
-            targetAnnualIncome = targetAnnualIncome
+            targetAnnualIncome = targetAnnualIncome,
+            strategy = drawdownStrategy,
+            lumpSumOption = lumpSumOption
         )
         PensionCalculator.calculateProjections(
             accounts = accounts,
-            assumptions = updatedAssumptions,
+            assumptions = baseAssumptions,
             preferences = updatedDrawdown,
             person1 = person1,
             person2 = person2,
             retirementAge1 = retirementAge1,
-            retirementAge2 = retirementAge2
+            retirementAge2 = retirementAge2,
+            projectionType = projectionType
         )
+    }
+
+    // Comparative projections for the summary card
+    val comparison = remember(projectionType, retirementAge1, retirementAge2, baseAssumptions, targetAnnualIncome, drawdownStrategy, lumpSumOption) {
+        val standardPrefs = drawdown.copy(
+            targetAnnualIncome = targetAnnualIncome,
+            strategy = DrawdownStrategy.STANDARD,
+            lumpSumOption = lumpSumOption
+        )
+        val optimalPrefs = drawdown.copy(
+            targetAnnualIncome = targetAnnualIncome,
+            strategy = DrawdownStrategy.TAX_MINIMIZED,
+            lumpSumOption = lumpSumOption
+        )
+        
+        val upFrontPrefs = drawdown.copy(
+            targetAnnualIncome = targetAnnualIncome,
+            strategy = drawdownStrategy,
+            lumpSumOption = LumpSumOption.UP_FRONT
+        )
+        val asYouGoPrefs = drawdown.copy(
+            targetAnnualIncome = targetAnnualIncome,
+            strategy = drawdownStrategy,
+            lumpSumOption = LumpSumOption.AS_YOU_GO
+        )
+
+        val standardProj = PensionCalculator.calculateProjections(
+            accounts = accounts, assumptions = baseAssumptions, preferences = standardPrefs,
+            person1 = person1, person2 = person2, retirementAge1 = retirementAge1, retirementAge2 = retirementAge2, projectionType = projectionType
+        )
+        val optimalProj = PensionCalculator.calculateProjections(
+            accounts = accounts, assumptions = baseAssumptions, preferences = optimalPrefs,
+            person1 = person1, person2 = person2, retirementAge1 = retirementAge1, retirementAge2 = retirementAge2, projectionType = projectionType
+        )
+        val upFrontProj = PensionCalculator.calculateProjections(
+            accounts = accounts, assumptions = baseAssumptions, preferences = upFrontPrefs,
+            person1 = person1, person2 = person2, retirementAge1 = retirementAge1, retirementAge2 = retirementAge2, projectionType = projectionType
+        )
+        val asYouGoProj = PensionCalculator.calculateProjections(
+            accounts = accounts, assumptions = baseAssumptions, preferences = asYouGoPrefs,
+            person1 = person1, person2 = person2, retirementAge1 = retirementAge1, retirementAge2 = retirementAge2, projectionType = projectionType
+        )
+        
+        object {
+            val standardTax = standardProj.totalTaxPaid
+            val optimalTax = optimalProj.totalTaxPaid
+            val upFrontTax = upFrontProj.totalTaxPaid
+            val asYouGoTax = asYouGoProj.totalTaxPaid
+            
+            val standardFinalWealth = (standardProj.results.lastOrNull()?.let { it.totalPensionValue + it.totalSavings } ?: 0.0)
+            val optimalFinalWealth = (optimalProj.results.lastOrNull()?.let { it.totalPensionValue + it.totalSavings } ?: 0.0)
+            val upFrontFinalWealth = (upFrontProj.results.lastOrNull()?.let { it.totalPensionValue + it.totalSavings } ?: 0.0)
+            val asYouGoFinalWealth = (asYouGoProj.results.lastOrNull()?.let { it.totalPensionValue + it.totalSavings } ?: 0.0)
+        }
     }
 
     val scrollState = rememberScrollState()
@@ -85,7 +155,83 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
             )
         }
 
-        // line chart displaying growth & depletion phases
+        // 1. Selector controls
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = CardSurface)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Projection Controls",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = TextPrimary
+                )
+
+                // Mode Selector
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Projection Mode", fontSize = 11.sp, color = TextSecondary)
+                    SegmentedControl(
+                        items = listOf(ProjectionType.INDIVIDUAL_CHRIS, ProjectionType.INDIVIDUAL_LISA, ProjectionType.COUPLE),
+                        selectedItem = projectionType,
+                        onItemSelected = { projectionType = it },
+                        labelProvider = {
+                            when (it) {
+                                ProjectionType.INDIVIDUAL_CHRIS -> "Chris"
+                                ProjectionType.INDIVIDUAL_LISA -> "Lisa"
+                                ProjectionType.COUPLE -> "Couple (Joint)"
+                            }
+                        }
+                    )
+                }
+
+                // Strategy Selector
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Drawdown Strategy", fontSize = 11.sp, color = TextSecondary)
+                    SegmentedControl(
+                        items = listOf(DrawdownStrategy.STANDARD, DrawdownStrategy.TAX_MINIMIZED),
+                        selectedItem = drawdownStrategy,
+                        onItemSelected = { 
+                            drawdownStrategy = it 
+                            drawdown.strategy = it
+                            repository.saveDrawdownPreferences(drawdown)
+                        },
+                        labelProvider = {
+                            when (it) {
+                                DrawdownStrategy.STANDARD -> "Standard (ISA First)"
+                                DrawdownStrategy.TAX_MINIMIZED -> "Tax-Minimized"
+                            }
+                        }
+                    )
+                }
+
+                // Lump Sum Selector
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Pension Tax-Free Cash Option", fontSize = 11.sp, color = TextSecondary)
+                    SegmentedControl(
+                        items = listOf(LumpSumOption.UP_FRONT, LumpSumOption.AS_YOU_GO),
+                        selectedItem = lumpSumOption,
+                        onItemSelected = { 
+                            lumpSumOption = it 
+                            drawdown.lumpSumOption = it
+                            repository.saveDrawdownPreferences(drawdown)
+                        },
+                        labelProvider = {
+                            when (it) {
+                                LumpSumOption.UP_FRONT -> "25% Up Front"
+                                LumpSumOption.AS_YOU_GO -> "Withdraw As You Go"
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        // 2. Line Chart Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -93,7 +239,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Consolidated Wealth Growth & Drawdown",
+                    text = "Wealth Growth & Drawdown Strategy",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = TextPrimary
@@ -137,7 +283,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
             }
         }
 
-        // Feasibility Indicator Card
+        // 3. Feasibility Indicator Card
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = if (projection.feasible) Color(0xFF132D2F) else Color(0xFF2E191E)
@@ -165,7 +311,12 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 }
                 
                 // Determine depletion age
-                val depletionResult = projection.results.firstOrNull { it.age >= retirementAge1 && (it.totalPensionValue + it.totalSavings) <= 0.0 }
+                val retirementAgeActive = when (projectionType) {
+                    ProjectionType.INDIVIDUAL_CHRIS -> retirementAge1
+                    ProjectionType.INDIVIDUAL_LISA -> retirementAge2
+                    ProjectionType.COUPLE -> retirementAge1
+                }
+                val depletionResult = projection.results.firstOrNull { it.age >= retirementAgeActive && (it.totalPensionValue + it.totalSavings) <= 0.0 }
                 val summaryText = if (depletionResult != null) {
                     "Depleted at age ${depletionResult.age}"
                 } else {
@@ -181,7 +332,98 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
             }
         }
 
-        // Sliders card
+        // 4. Comparative Analysis Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = CardSurface)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Tax & Drawdown Optimization Analysis",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = TextPrimary
+                )
+                
+                // Drawdown strategy comparison
+                val strategyTaxDiff = comparison.standardTax - comparison.optimalTax
+                
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Drawdown Strategy Comparison", fontSize = 12.sp, color = TextSecondary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Standard (ISA First) Lifetime Tax:", fontSize = 12.sp, color = TextSecondary)
+                        Text(formatter.format(comparison.standardTax), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Tax-Minimized Lifetime Tax:", fontSize = 12.sp, color = TextSecondary)
+                        Text(formatter.format(comparison.optimalTax), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    }
+                    
+                    val strategyAdvanText = if (strategyTaxDiff > 0.0) {
+                        "Tax-Minimized strategy saves you ${formatter.format(strategyTaxDiff)} in lifetime taxes!"
+                    } else if (strategyTaxDiff < 0.0) {
+                        "Standard strategy saves you ${formatter.format(-strategyTaxDiff)} in lifetime taxes!"
+                    } else {
+                        "Both strategies yield the same lifetime tax."
+                    }
+                    Text(
+                        text = strategyAdvanText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (strategyTaxDiff >= 0.0) ColorCurrent else ColorPension
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(SlateBg))
+
+                // Lump Sum Option comparison
+                val lumpSumTaxDiff = comparison.upFrontTax - comparison.asYouGoTax
+                
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Tax-Free Lump Sum Comparison", fontSize = 12.sp, color = TextSecondary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("25% Up Front Lifetime Tax:", fontSize = 12.sp, color = TextSecondary)
+                        Text(formatter.format(comparison.upFrontTax), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Withdraw As You Go Lifetime Tax:", fontSize = 12.sp, color = TextSecondary)
+                        Text(formatter.format(comparison.asYouGoTax), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    }
+                    
+                    val lumpSumAdvanText = if (lumpSumTaxDiff > 0.0) {
+                        "Withdrawing 'As You Go' saves ${formatter.format(lumpSumTaxDiff)} in lifetime taxes!"
+                    } else if (lumpSumTaxDiff < 0.0) {
+                        "Taking lump sum 'Up Front' saves ${formatter.format(-lumpSumTaxDiff)} in lifetime taxes!"
+                    } else {
+                        "Both options yield the same lifetime tax."
+                    }
+                    Text(
+                        text = lumpSumAdvanText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (lumpSumTaxDiff >= 0.0) ColorCurrent else ColorPension
+                    )
+                }
+            }
+        }
+
+        // 5. Sliders Card
         Card(
             colors = CardDefaults.cardColors(containerColor = CardSurface)
         ) {
@@ -189,49 +431,53 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. Chris's Retirement Age slider
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Chris's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                        Text("$retirementAge1 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
+                // Chris's Retirement Age slider
+                if (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_CHRIS) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Chris's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                            Text("$retirementAge1 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
+                        }
+                        Slider(
+                            value = retirementAge1.toFloat(),
+                            onValueChange = { 
+                                retirementAge1 = it.toInt()
+                                person1.retirementAge = it.toInt()
+                                repository.savePerson(person1)
+                            },
+                            valueRange = 50f..75f,
+                            steps = 25
+                        )
                     }
-                    Slider(
-                        value = retirementAge1.toFloat(),
-                        onValueChange = { 
-                            retirementAge1 = it.toInt()
-                            person1.retirementAge = it.toInt()
-                            repository.savePerson(person1)
-                        },
-                        valueRange = 50f..75f,
-                        steps = 25
-                    )
                 }
 
-                // 1b. Lisa's Retirement Age slider
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Lisa's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                        Text("$retirementAge2 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
+                // Lisa's Retirement Age slider
+                if (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_LISA) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Lisa's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                            Text("$retirementAge2 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
+                        }
+                        Slider(
+                            value = retirementAge2.toFloat(),
+                            onValueChange = { 
+                                retirementAge2 = it.toInt()
+                                person2.retirementAge = it.toInt()
+                                repository.savePerson(person2)
+                            },
+                            valueRange = 50f..75f,
+                            steps = 25
+                        )
                     }
-                    Slider(
-                        value = retirementAge2.toFloat(),
-                        onValueChange = { 
-                            retirementAge2 = it.toInt()
-                            person2.retirementAge = it.toInt()
-                            repository.savePerson(person2)
-                        },
-                        valueRange = 50f..75f,
-                        steps = 25
-                    )
                 }
 
-                // 2. Expected Investment Return
+                // Expected Investment Return
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -247,7 +493,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                     )
                 }
 
-                // 3. Inflation Rate
+                // Average Inflation Rate
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -263,7 +509,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                     )
                 }
 
-                // 4. Target annual income
+                // Target annual income
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -279,6 +525,123 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                         steps = 90
                     )
                 }
+            }
+        }
+
+        // 6. Year-by-Year breakdown scrollable table
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = CardSurface)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showYearlyBreakdown = !showYearlyBreakdown },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Annual Year-by-Year Breakdown",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (showYearlyBreakdown) "Tap to hide details" else "Tap to view annual details",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    Text(
+                        text = if (showYearlyBreakdown) "▲" else "▼",
+                        color = TextPrimary,
+                        fontSize = 14.sp
+                    )
+                }
+
+                if (showYearlyBreakdown) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Table Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SlateBg, RoundedCornerShape(4.dp))
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Year (Age)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextSecondary, modifier = Modifier.weight(1.2f))
+                        Text("Pensions", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextSecondary, modifier = Modifier.weight(1.5f))
+                        Text("Savings/ISA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextSecondary, modifier = Modifier.weight(1.5f))
+                        Text("Tax Paid", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextSecondary, modifier = Modifier.weight(1.2f))
+                        Text("Net Inc.", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextSecondary, modifier = Modifier.weight(1.2f))
+                    }
+
+                    projection.results.forEach { result ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${result.year} (${result.age})", fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.2f))
+                            Text(formatter.format(result.totalPensionValue), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.5f))
+                            Text(formatter.format(result.totalSavings), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.5f))
+                            Text(
+                                text = formatter.format(result.tax), 
+                                fontSize = 11.sp, 
+                                color = if (result.tax > 0.0) ColorFinalSalary else TextSecondary, 
+                                fontWeight = if (result.tax > 0.0) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1.2f)
+                            )
+                            Text(formatter.format(result.netIncome), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.2f))
+                        }
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(SlateBg))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun <T> SegmentedControl(
+    items: List<T>,
+    selectedItem: T,
+    onItemSelected: (T) -> Unit,
+    labelProvider: (T) -> String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(SlateBg, RoundedCornerShape(8.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        items.forEach { item ->
+            val isSelected = item == selectedItem
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        color = if (isSelected) PrimaryIndigo else Color.Transparent,
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable { onItemSelected(item) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = labelProvider(item),
+                    color = if (isSelected) TextPrimary else TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                )
             }
         }
     }
