@@ -63,7 +63,7 @@ fun DashboardScreen(
     var editBalanceValue by remember { mutableStateOf("") }
 
     // Load and correct accounts on screen resume (launch or back navigation)
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
