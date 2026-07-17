@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chris.financeapp.BuildConfig
 import com.chris.financeapp.data.repository.FinanceRepository
+import com.chris.financeapp.data.model.Person
+import com.chris.financeapp.data.model.DrawdownPreferences
 import com.chris.financeapp.ui.theme.SlateBg
 import com.chris.financeapp.ui.theme.TextPrimary
 import com.chris.financeapp.ui.theme.TextSecondary
@@ -32,6 +34,16 @@ fun SettingsScreen(repository: FinanceRepository) {
 
     // Load configurations from Repository
     val (tlId, tlSecret) = remember { repository.getTrueLayerCredentials() }
+    val person1 = remember { repository.getPerson("person-1") }
+    val person2 = remember { repository.getPerson("person-2") }
+    val drawdown = remember { repository.getDrawdownPreferences() }
+
+    var isCouple by remember { mutableStateOf(drawdown.isCouple) }
+
+    var p1Name by remember { mutableStateOf(person1.name) }
+    var p1BirthYear by remember { mutableStateOf(person1.birthYear.toString()) }
+    var p2Name by remember { mutableStateOf(person2.name) }
+    var p2BirthYear by remember { mutableStateOf(person2.birthYear.toString()) }
 
     var truelayerId by remember { mutableStateOf(tlId) }
     var truelayerSecret by remember { mutableStateOf(tlSecret) }
@@ -103,6 +115,112 @@ fun SettingsScreen(repository: FinanceRepository) {
                     modifier = Modifier.align(Alignment.End)
                 ) {
                     Text("Save Credentials")
+                }
+            }
+        }
+
+        // Relationship & Profiles Config Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Relationship & Profiles", fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(
+                    "Configure your profiles, birth years, and relationship status for drawdown simulations.",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+
+                // Relationship Status Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Relationship Status", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(if (isCouple) "Couple (Joint)" else "Single Person", fontSize = 12.sp, color = TextSecondary)
+                        Switch(
+                            checked = isCouple,
+                            onCheckedChange = { isCouple = it }
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // Person 1 Profile
+                Text(if (isCouple) "Person 1 Profile" else "Your Profile", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = p1Name,
+                        onValueChange = { p1Name = it },
+                        label = { Text("Name") },
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
+                    )
+                    OutlinedTextField(
+                        value = p1BirthYear,
+                        onValueChange = { p1BirthYear = it },
+                        label = { Text("Birth Year") },
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
+                    )
+                }
+
+                if (isCouple) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    // Person 2 Profile
+                    Text("Person 2 Profile", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = p2Name,
+                            onValueChange = { p2Name = it },
+                            label = { Text("Name") },
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
+                        )
+                        OutlinedTextField(
+                            value = p2BirthYear,
+                            onValueChange = { p2BirthYear = it },
+                            label = { Text("Birth Year") },
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        val birthYear1 = p1BirthYear.toIntOrNull() ?: person1.birthYear
+                        repository.savePerson(person1.copy(name = p1Name, birthYear = birthYear1))
+
+                        val birthYear2 = p2BirthYear.toIntOrNull() ?: person2.birthYear
+                        repository.savePerson(person2.copy(name = p2Name, birthYear = birthYear2))
+
+                        drawdown.isCouple = isCouple
+                        repository.saveDrawdownPreferences(drawdown)
+
+                        Toast.makeText(context, "Profiles Saved", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Save Profiles")
                 }
             }
         }

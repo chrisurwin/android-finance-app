@@ -29,6 +29,8 @@ import com.chris.financeapp.data.model.Account
 import com.chris.financeapp.data.model.AccountType
 import com.chris.financeapp.data.api.TrueLayerApi
 import com.chris.financeapp.data.repository.FinanceRepository
+import com.chris.financeapp.data.model.Person
+import com.chris.financeapp.data.model.DrawdownPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,6 +53,9 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     val accounts = remember { mutableStateListOf<Account>() }
+    val person1 = remember { repository.getPerson("person-1") }
+    val person2 = remember { repository.getPerson("person-2") }
+    val drawdown = remember { repository.getDrawdownPreferences() }
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
@@ -330,30 +335,41 @@ fun DashboardScreen(
                                                     )
                                                 }
                                                 // Ownership Tag (Clickable to Toggle!)
-                                                val isLisa = account.personId == "person-2"
-                                                val ownerName = if (isLisa) "Lisa" else "Chris"
-                                                val ownerColor = if (isLisa) Color(0xFFD946EF) else Color(0xFF6366F1)
-                                                Box(
-                                                    modifier = Modifier
-                                                        .background(
-                                                            ownerColor.copy(alpha = 0.15f),
-                                                            RoundedCornerShape(4.dp)
+                                                if (drawdown.isCouple) {
+                                                    val isLisa = account.personId == "person-2"
+                                                    val ownerName = if (isLisa) person2.name else person1.name
+                                                    val ownerColor = if (isLisa) Color(0xFFD946EF) else Color(0xFF6366F1)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .background(
+                                                                ownerColor.copy(alpha = 0.15f),
+                                                                RoundedCornerShape(4.dp)
+                                                            )
+                                                            .clickable {
+                                                                val updated = account.copy(personId = if (isLisa) "person-1" else "person-2")
+                                                                repository.addOrUpdateAccount(updated)
+                                                                accounts.clear()
+                                                                accounts.addAll(repository.getAccounts())
+                                                            }
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = ownerName,
+                                                            fontSize = 10.sp,
+                                                            color = ownerColor,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            maxLines = 1
                                                         )
-                                                        .clickable {
-                                                            val updated = account.copy(personId = if (isLisa) "person-1" else "person-2")
-                                                            repository.addOrUpdateAccount(updated)
-                                                            accounts.clear()
-                                                            accounts.addAll(repository.getAccounts())
-                                                        }
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = ownerName,
-                                                        fontSize = 10.sp,
-                                                        color = ownerColor,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        maxLines = 1
-                                                    )
+                                                    }
+                                                } else {
+                                                    // Ensure account personId is person-1 in single person mode
+                                                    if (account.personId != "person-1") {
+                                                        val updated = account.copy(personId = "person-1")
+                                                        repository.addOrUpdateAccount(updated)
+                                                        // Refresh list
+                                                        accounts.clear()
+                                                        accounts.addAll(repository.getAccounts())
+                                                    }
                                                 }
                                                 if (account.type == AccountType.FINAL_SALARY) {
                                                     Spacer(modifier = Modifier.width(6.dp))

@@ -49,7 +49,8 @@ data class DrawdownPreferences(
     var strategy: DrawdownStrategy = DrawdownStrategy.STANDARD,
     var lumpSumOption: LumpSumOption = LumpSumOption.AS_YOU_GO,
     var stepDownAge: Int = 80,
-    var stepDownPercentage: Int = 25
+    var stepDownPercentage: Int = 25,
+    var isCouple: Boolean = true
 )
 
 @Serializable

@@ -122,9 +122,9 @@ class FinanceRepository(private val context: Context) {
             } catch (e: Exception) {}
         }
         val default = if (id == "person-2") {
-            Person("person-2", "Lisa", 1976, 65)
+            Person("person-2", "User 2", 1982, 65)
         } else {
-            Person("person-1", "Chris", 1974, 65)
+            Person("person-1", "User 1", 1980, 65)
         }
         savePerson(default)
         return default

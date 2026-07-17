@@ -79,9 +79,34 @@ object PensionCalculator {
         val endAge = preferences.endAge
 
         val (currentAgeActive, activePersonName) = when (projectionType) {
-            ProjectionType.INDIVIDUAL_CHRIS -> Pair(currentAge1, "Chris")
-            ProjectionType.INDIVIDUAL_LISA -> Pair(currentAge2, "Lisa")
-            ProjectionType.COUPLE -> Pair(currentAge1, "Chris & Lisa")
+            ProjectionType.INDIVIDUAL_CHRIS -> Pair(currentAge1, person1.name)
+            ProjectionType.INDIVIDUAL_LISA -> Pair(currentAge2, person2.name)
+            ProjectionType.COUPLE -> Pair(currentAge1, "${person1.name} & ${person2.name}")
+        }
+
+        val totalAssets = accounts.sumOf { it.balance }
+        if (totalAssets <= 0.0) {
+            val results = (0..(endAge - currentAgeActive)).map { yearOffset ->
+                ProjectionResult(
+                    age = currentAgeActive + yearOffset,
+                    year = currentYear + yearOffset,
+                    totalPensionValue = 0.0,
+                    totalSavings = 0.0,
+                    annualIncome = 0.0,
+                    netIncome = 0.0,
+                    tax = 0.0,
+                    tax1 = 0.0,
+                    tax2 = 0.0,
+                    canRetire = false,
+                    withdrawals = emptyList()
+                )
+            }
+            return RetirementProjection(
+                results = results,
+                retirementAge = retirementAge1,
+                feasible = false,
+                totalTaxPaid = 0.0
+            )
         }
 
         val results = mutableListOf<ProjectionResult>()
@@ -150,7 +175,7 @@ object PensionCalculator {
                             val lump = pension.balance * 0.25
                             totalLumpSum1 += lump
                             if (lump > 0.0) {
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", "Chris", lump, 0.0))
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", person1.name, lump, 0.0))
                             }
                             pension.copy(balance = pension.balance * 0.75)
                         } else {
@@ -180,7 +205,7 @@ object PensionCalculator {
                             val lump = pension.balance * 0.25
                             totalLumpSum2 += lump
                             if (lump > 0.0) {
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", "Lisa", lump, 0.0))
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", person2.name, lump, 0.0))
                             }
                             pension.copy(balance = pension.balance * 0.75)
                         } else {
@@ -264,19 +289,19 @@ object PensionCalculator {
                 // Log base withdrawals (State Pension & DB final salaries) with proportional tax allocation
                 if (statePension1 > 0.0) {
                     val taxFraction = if (taxableIncome1 > 0.0) statePension1 / taxableIncome1 else 0.0
-                    yearWithdrawals.add(WithdrawalDetail("State Pension", "Chris", statePension1, baseTax1 * taxFraction))
+                    yearWithdrawals.add(WithdrawalDetail("State Pension", person1.name, statePension1, baseTax1 * taxFraction))
                 }
                 if (statePension2 > 0.0) {
                     val taxFraction = if (taxableIncome2 > 0.0) statePension2 / taxableIncome2 else 0.0
-                    yearWithdrawals.add(WithdrawalDetail("State Pension", "Lisa", statePension2, baseTax2 * taxFraction))
+                    yearWithdrawals.add(WithdrawalDetail("State Pension", person2.name, statePension2, baseTax2 * taxFraction))
                 }
                 dbPayouts1.forEach { (name, payout) ->
                     val taxFraction = if (taxableIncome1 > 0.0) payout / taxableIncome1 else 0.0
-                    yearWithdrawals.add(WithdrawalDetail(name, "Chris", payout, baseTax1 * taxFraction))
+                    yearWithdrawals.add(WithdrawalDetail(name, person1.name, payout, baseTax1 * taxFraction))
                 }
                 dbPayouts2.forEach { (name, payout) ->
                     val taxFraction = if (taxableIncome2 > 0.0) payout / taxableIncome2 else 0.0
-                    yearWithdrawals.add(WithdrawalDetail(name, "Lisa", payout, baseTax2 * taxFraction))
+                    yearWithdrawals.add(WithdrawalDetail(name, person2.name, payout, baseTax2 * taxFraction))
                 }
 
                 // Calculate net guaranteed income after tax
@@ -311,7 +336,7 @@ object PensionCalculator {
                                     taxFreeIncome += tfPart
                                     pension.balance -= withdrawal
                                     remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", "Chris", withdrawal, taxPaidForThisDraw))
+                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, withdrawal, taxPaidForThisDraw))
                                 }
                             }
                         }
@@ -337,7 +362,7 @@ object PensionCalculator {
                                     taxFreeIncome += tfPart
                                     pension.balance -= withdrawal
                                     remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", "Lisa", withdrawal, taxPaidForThisDraw))
+                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, withdrawal, taxPaidForThisDraw))
                                 }
                             }
                         }
@@ -351,7 +376,7 @@ object PensionCalculator {
                             taxFreeIncome += withdrawal
                             saving.balance -= withdrawal
                             remainingTarget -= withdrawal
-                            val owner = if (saving.personId == "person-2") "Lisa" else "Chris"
+                            val owner = if (saving.personId == "person-2") person2.name else person1.name
                             yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", owner, withdrawal, 0.0))
                         }
                     }
@@ -373,7 +398,7 @@ object PensionCalculator {
                             
                             saving.balance -= withdrawal
                             remainingTarget -= withdrawal
-                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) "Lisa" else "Chris", withdrawal, taxPaidForThisDraw))
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
                         }
                     }
 
@@ -399,7 +424,7 @@ object PensionCalculator {
                                 taxFreeIncome += tfPart
                                 pension.balance -= withdrawal
                                 remainingTarget -= (tfPart + taxablePart * 0.80)
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) "Lisa" else "Chris", withdrawal, taxPaidForThisDraw))
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
                             }
                         }
                     }
@@ -428,7 +453,7 @@ object PensionCalculator {
                                     taxFreeIncome += tfPart
                                     pension.balance -= withdrawal
                                     remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", "Chris", withdrawal, taxPaidForThisDraw))
+                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, withdrawal, taxPaidForThisDraw))
                                 }
                             }
                         }
@@ -454,7 +479,7 @@ object PensionCalculator {
                                     taxFreeIncome += tfPart
                                     pension.balance -= withdrawal
                                     remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", "Lisa", withdrawal, taxPaidForThisDraw))
+                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, withdrawal, taxPaidForThisDraw))
                                 }
                             }
                         }
@@ -482,7 +507,7 @@ object PensionCalculator {
                                     taxFreeIncome += tfPart
                                     pension.balance -= withdrawal
                                     remainingTarget -= (tfPart + taxablePart * 0.80)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", "Chris", withdrawal, taxPaidForThisDraw))
+                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, withdrawal, taxPaidForThisDraw))
                                 }
                             }
                         }
@@ -508,7 +533,7 @@ object PensionCalculator {
                                     taxFreeIncome += tfPart
                                     pension.balance -= withdrawal
                                     remainingTarget -= (tfPart + taxablePart * 0.80)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", "Lisa", withdrawal, taxPaidForThisDraw))
+                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, withdrawal, taxPaidForThisDraw))
                                 }
                             }
                         }
@@ -522,7 +547,7 @@ object PensionCalculator {
                             taxFreeIncome += withdrawal
                             saving.balance -= withdrawal
                             remainingTarget -= withdrawal
-                            val owner = if (saving.personId == "person-2") "Lisa" else "Chris"
+                            val owner = if (saving.personId == "person-2") person2.name else person1.name
                             yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", owner, withdrawal, 0.0))
                         }
                     }
@@ -544,7 +569,7 @@ object PensionCalculator {
                             
                             saving.balance -= withdrawal
                             remainingTarget -= withdrawal
-                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) "Lisa" else "Chris", withdrawal, taxPaidForThisDraw))
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
                         }
                     }
 
@@ -571,7 +596,7 @@ object PensionCalculator {
                                 taxFreeIncome += tfPart
                                 pension.balance -= withdrawal
                                 remainingTarget -= (tfPart + taxablePart * 0.60)
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) "Lisa" else "Chris", withdrawal, taxPaidForThisDraw))
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
                             }
                         }
                     }

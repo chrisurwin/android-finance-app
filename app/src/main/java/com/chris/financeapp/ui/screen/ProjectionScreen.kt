@@ -42,7 +42,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     var inflationRate by remember { mutableStateOf((assumptions.inflationRate * 100).toFloat()) }
     var targetAnnualIncome by remember { mutableStateOf(drawdown.targetAnnualIncome) }
 
-    var projectionType by remember { mutableStateOf(ProjectionType.COUPLE) }
+    var projectionType by remember { mutableStateOf(if (drawdown.isCouple) ProjectionType.COUPLE else ProjectionType.INDIVIDUAL_CHRIS) }
     var drawdownStrategy by remember { mutableStateOf(drawdown.strategy) }
     var lumpSumOption by remember { mutableStateOf(drawdown.lumpSumOption) }
     var showYearlyBreakdown by remember { mutableStateOf(false) }
@@ -205,20 +205,22 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 )
 
                 // Mode Selector
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Projection Mode", fontSize = 11.sp, color = TextSecondary)
-                    SegmentedControl(
-                        items = listOf(ProjectionType.INDIVIDUAL_CHRIS, ProjectionType.INDIVIDUAL_LISA, ProjectionType.COUPLE),
-                        selectedItem = projectionType,
-                        onItemSelected = { projectionType = it },
-                        labelProvider = {
-                            when (it) {
-                                ProjectionType.INDIVIDUAL_CHRIS -> "Chris"
-                                ProjectionType.INDIVIDUAL_LISA -> "Lisa"
-                                ProjectionType.COUPLE -> "Couple (Joint)"
+                if (drawdown.isCouple) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Projection Mode", fontSize = 11.sp, color = TextSecondary)
+                        SegmentedControl(
+                            items = listOf(ProjectionType.INDIVIDUAL_CHRIS, ProjectionType.INDIVIDUAL_LISA, ProjectionType.COUPLE),
+                            selectedItem = projectionType,
+                            onItemSelected = { projectionType = it },
+                            labelProvider = {
+                                when (it) {
+                                    ProjectionType.INDIVIDUAL_CHRIS -> person1.name
+                                    ProjectionType.INDIVIDUAL_LISA -> person2.name
+                                    ProjectionType.COUPLE -> "Couple (Joint)"
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
 
                 // Strategy Selector
@@ -463,14 +465,14 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Chris's Retirement Age slider
+                // Person 1's Retirement Age slider
                 if (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_CHRIS) {
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Chris's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                            Text("${person1.name}'s Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
                             Text("$retirementAge1 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
                         }
                         Slider(
@@ -486,14 +488,14 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                     }
                 }
 
-                // Lisa's Retirement Age slider
-                if (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_LISA) {
+                // Person 2's Retirement Age slider
+                if (drawdown.isCouple && (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_LISA)) {
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Lisa's Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                            Text("${person2.name}'s Retirement Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
                             Text("$retirementAge2 Years Old", fontWeight = FontWeight.Bold, color = ColorPension)
                         }
                         Slider(
