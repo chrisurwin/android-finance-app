@@ -12,8 +12,8 @@ android {
         applicationId = "com.chris.financeapp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.0.33"
+        versionCode = 31
+        versionName = "0.0.34"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
