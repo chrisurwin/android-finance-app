@@ -47,6 +47,8 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     var lumpSumOption by remember { mutableStateOf(drawdown.lumpSumOption) }
     var showYearlyBreakdown by remember { mutableStateOf(false) }
     var expandedYear by remember { mutableStateOf(-1) }
+    var stepDownAge by remember { mutableStateOf(drawdown.stepDownAge) }
+    var stepDownPercentage by remember { mutableStateOf(drawdown.stepDownPercentage) }
 
     val formatter = NumberFormat.getCurrencyInstance(Locale.UK)
 
@@ -59,11 +61,13 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     }
 
     // Dynamic calculations running on parameter updates
-    val projection = remember(projectionType, retirementAge1, retirementAge2, baseAssumptions, targetAnnualIncome, drawdownStrategy, lumpSumOption) {
+    val projection = remember(projectionType, retirementAge1, retirementAge2, baseAssumptions, targetAnnualIncome, drawdownStrategy, lumpSumOption, stepDownAge, stepDownPercentage) {
         val updatedDrawdown = drawdown.copy(
             targetAnnualIncome = targetAnnualIncome,
             strategy = drawdownStrategy,
-            lumpSumOption = lumpSumOption
+            lumpSumOption = lumpSumOption,
+            stepDownAge = stepDownAge,
+            stepDownPercentage = stepDownPercentage
         )
         PensionCalculator.calculateProjections(
             accounts = accounts,
@@ -78,27 +82,35 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     }
 
     // Comparative projections for the summary card
-    val comparison = remember(projectionType, retirementAge1, retirementAge2, baseAssumptions, targetAnnualIncome, drawdownStrategy, lumpSumOption) {
+    val comparison = remember(projectionType, retirementAge1, retirementAge2, baseAssumptions, targetAnnualIncome, drawdownStrategy, lumpSumOption, stepDownAge, stepDownPercentage) {
         val standardPrefs = drawdown.copy(
             targetAnnualIncome = targetAnnualIncome,
             strategy = DrawdownStrategy.STANDARD,
-            lumpSumOption = lumpSumOption
+            lumpSumOption = lumpSumOption,
+            stepDownAge = stepDownAge,
+            stepDownPercentage = stepDownPercentage
         )
         val optimalPrefs = drawdown.copy(
             targetAnnualIncome = targetAnnualIncome,
             strategy = DrawdownStrategy.TAX_MINIMIZED,
-            lumpSumOption = lumpSumOption
+            lumpSumOption = lumpSumOption,
+            stepDownAge = stepDownAge,
+            stepDownPercentage = stepDownPercentage
         )
         
         val upFrontPrefs = drawdown.copy(
             targetAnnualIncome = targetAnnualIncome,
             strategy = drawdownStrategy,
-            lumpSumOption = LumpSumOption.UP_FRONT
+            lumpSumOption = LumpSumOption.UP_FRONT,
+            stepDownAge = stepDownAge,
+            stepDownPercentage = stepDownPercentage
         )
         val asYouGoPrefs = drawdown.copy(
             targetAnnualIncome = targetAnnualIncome,
             strategy = drawdownStrategy,
-            lumpSumOption = LumpSumOption.AS_YOU_GO
+            lumpSumOption = LumpSumOption.AS_YOU_GO,
+            stepDownAge = stepDownAge,
+            stepDownPercentage = stepDownPercentage
         )
 
         val standardProj = PensionCalculator.calculateProjections(
@@ -128,6 +140,25 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
             val optimalFinalWealth = (optimalProj.results.lastOrNull()?.let { it.totalPensionValue + it.totalSavings } ?: 0.0)
             val upFrontFinalWealth = (upFrontProj.results.lastOrNull()?.let { it.totalPensionValue + it.totalSavings } ?: 0.0)
             val asYouGoFinalWealth = (asYouGoProj.results.lastOrNull()?.let { it.totalPensionValue + it.totalSavings } ?: 0.0)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            val finalDrawdown = drawdown.copy(
+                targetAnnualIncome = targetAnnualIncome,
+                strategy = drawdownStrategy,
+                lumpSumOption = lumpSumOption,
+                stepDownAge = stepDownAge,
+                stepDownPercentage = stepDownPercentage
+            )
+            repository.saveDrawdownPreferences(finalDrawdown)
+
+            val finalAssumptions = assumptions.copy(
+                equityReturn = (equityReturn / 100.0),
+                inflationRate = (inflationRate / 100.0)
+            )
+            repository.saveInvestmentAssumptions(finalAssumptions)
         }
     }
 
@@ -524,6 +555,40 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                         onValueChange = { targetAnnualIncome = it.toDouble() },
                         valueRange = 10000f..100000f,
                         steps = 90
+                    )
+                }
+
+                // Step Down Age slider
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Income Step Down Age", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                        Text("$stepDownAge Years Old", fontWeight = FontWeight.Bold, color = ColorISA)
+                    }
+                    Slider(
+                        value = stepDownAge.toFloat(),
+                        onValueChange = { stepDownAge = it.toInt() },
+                        valueRange = 70f..90f,
+                        steps = 20
+                    )
+                }
+
+                // Step Down Percentage slider
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Step Down Reduction Amount", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                        Text("$stepDownPercentage%", fontWeight = FontWeight.Bold, color = ColorFinalSalary)
+                    }
+                    Slider(
+                        value = stepDownPercentage.toFloat(),
+                        onValueChange = { stepDownPercentage = it.toInt() },
+                        valueRange = 0f..50f,
+                        steps = 50
                     )
                 }
             }

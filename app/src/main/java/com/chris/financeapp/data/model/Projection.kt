@@ -47,7 +47,9 @@ data class DrawdownPreferences(
     var startAge: Int = 65,
     var endAge: Int = 95,
     var strategy: DrawdownStrategy = DrawdownStrategy.STANDARD,
-    var lumpSumOption: LumpSumOption = LumpSumOption.AS_YOU_GO
+    var lumpSumOption: LumpSumOption = LumpSumOption.AS_YOU_GO,
+    var stepDownAge: Int = 80,
+    var stepDownPercentage: Int = 25
 )
 
 @Serializable

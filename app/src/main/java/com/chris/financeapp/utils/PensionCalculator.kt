@@ -125,10 +125,14 @@ object PensionCalculator {
             val year = currentYear + yearOffset
             val inflationFactor = (1 + assumptions.inflationRate).pow(yearOffset.toDouble())
 
-            val targetIncome = if (preferences.inflationAdjusted) {
+            var targetIncome = if (preferences.inflationAdjusted) {
                 preferences.targetAnnualIncome * inflationFactor
             } else {
                 preferences.targetAnnualIncome
+            }
+
+            if (ageActive >= preferences.stepDownAge) {
+                targetIncome *= (1.0 - preferences.stepDownPercentage / 100.0)
             }
 
             val isRetired1 = if (projectionType == ProjectionType.INDIVIDUAL_LISA) false else age1 >= retirementAge1
