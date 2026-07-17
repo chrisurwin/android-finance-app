@@ -47,48 +47,45 @@ import java.util.Locale
 @Composable
 fun DashboardScreen(
     repository: FinanceRepository,
+    currentRoute: String?,
     onNavigateToConnect: () -> Unit,
     onNavigateToProjections: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
     val context = LocalContext.current
     val accounts = remember { mutableStateListOf<Account>() }
-    val person1 = remember { repository.getPerson("person-1") }
-    val person2 = remember { repository.getPerson("person-2") }
-    val drawdown = remember { repository.getDrawdownPreferences() }
+    var person1 by remember { mutableStateOf(repository.getPerson("person-1")) }
+    var person2 by remember { mutableStateOf(repository.getPerson("person-2")) }
+    var drawdown by remember { mutableStateOf(repository.getDrawdownPreferences()) }
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
     var editingAccount by remember { mutableStateOf<Account?>(null) }
     var editBalanceValue by remember { mutableStateOf("") }
 
-    // Load and correct accounts on screen resume (launch or back navigation)
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                val latestDrawdown = repository.getDrawdownPreferences()
-                val rawAccounts = repository.getAccounts()
-                val processed = if (!latestDrawdown.isCouple) {
-                    rawAccounts.map {
-                        if (it.personId != "person-1") {
-                            val updated = it.copy(personId = "person-1")
-                            repository.addOrUpdateAccount(updated)
-                            updated
-                        } else {
-                            it
-                        }
+    // Load and refresh profiles, settings and accounts when back on dashboard
+    LaunchedEffect(currentRoute) {
+        if (currentRoute == "dashboard") {
+            person1 = repository.getPerson("person-1")
+            person2 = repository.getPerson("person-2")
+            drawdown = repository.getDrawdownPreferences()
+
+            val rawAccounts = repository.getAccounts()
+            val processed = if (!drawdown.isCouple) {
+                rawAccounts.map {
+                    if (it.personId != "person-1") {
+                        val updated = it.copy(personId = "person-1")
+                        repository.addOrUpdateAccount(updated)
+                        updated
+                    } else {
+                        it
                     }
-                } else {
-                    rawAccounts
                 }
-                accounts.clear()
-                accounts.addAll(processed)
+            } else {
+                rawAccounts
             }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+            accounts.clear()
+            accounts.addAll(processed)
         }
     }
 

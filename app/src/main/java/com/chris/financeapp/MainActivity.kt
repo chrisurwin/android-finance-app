@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.compose.runtime.getValue
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.chris.financeapp.data.api.TrueLayerApi
 import com.chris.financeapp.data.model.Account
@@ -44,11 +46,14 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route
 
                     NavHost(navController = navController, startDestination = "dashboard") {
                         composable("dashboard") {
                             DashboardScreen(
                                 repository = repository,
+                                currentRoute = currentRoute,
                                 onNavigateToConnect = { navController.navigate("connect") },
                                 onNavigateToProjections = { navController.navigate("projections") },
                                 onNavigateToSettings = { navController.navigate("settings") }
