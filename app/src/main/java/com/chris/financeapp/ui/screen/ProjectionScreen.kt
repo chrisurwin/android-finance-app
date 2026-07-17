@@ -46,6 +46,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     var drawdownStrategy by remember { mutableStateOf(drawdown.strategy) }
     var lumpSumOption by remember { mutableStateOf(drawdown.lumpSumOption) }
     var showYearlyBreakdown by remember { mutableStateOf(false) }
+    var expandedYear by remember { mutableStateOf(-1) }
 
     val formatter = NumberFormat.getCurrencyInstance(Locale.UK)
 
@@ -581,24 +582,88 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                     }
 
                     projection.results.forEach { result ->
-                        Row(
+                        val isExpanded = expandedYear == result.year
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { expandedYear = if (isExpanded) -1 else result.year }
+                                .padding(vertical = 4.dp)
                         ) {
-                            Text("${result.year} (${result.age})", fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.2f))
-                            Text(formatter.format(result.totalPensionValue), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.5f))
-                            Text(formatter.format(result.totalSavings), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.5f))
-                            Text(
-                                text = formatter.format(result.tax), 
-                                fontSize = 11.sp, 
-                                color = if (result.tax > 0.0) ColorFinalSalary else TextSecondary, 
-                                fontWeight = if (result.tax > 0.0) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.weight(1.2f)
-                            )
-                            Text(formatter.format(result.netIncome), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.2f))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("${result.year} (${result.age})", fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.2f))
+                                Text(formatter.format(result.totalPensionValue), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.5f))
+                                Text(formatter.format(result.totalSavings), fontSize = 11.sp, color = TextPrimary, modifier = Modifier.weight(1.5f))
+                                Text(
+                                    text = formatter.format(result.tax), 
+                                    fontSize = 11.sp, 
+                                    color = if (result.tax > 0.0) ColorFinalSalary else TextSecondary, 
+                                    fontWeight = if (result.tax > 0.0) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1.2f)
+                                )
+                                Row(
+                                    modifier = Modifier.weight(1.2f),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(formatter.format(result.netIncome), fontSize = 11.sp, color = TextPrimary)
+                                    Text(
+                                        text = if (isExpanded) "▲" else "▼",
+                                        fontSize = 8.sp,
+                                        color = TextSecondary,
+                                        modifier = Modifier.padding(start = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (isExpanded && result.withdrawals.isNotEmpty()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(SlateBg, RoundedCornerShape(8.dp))
+                                        .padding(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "Annual Drawdown Detail:",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextSecondary
+                                    )
+                                    result.withdrawals.forEach { withdrawal ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1.2f)) {
+                                                Text(withdrawal.potName, fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                                Text("Owner: ${withdrawal.ownerName}", fontSize = 9.sp, color = TextSecondary)
+                                            }
+                                            Text(
+                                                text = "Drawn: ${formatter.format(withdrawal.amountDrawn)}", 
+                                                fontSize = 11.sp, 
+                                                color = TextPrimary, 
+                                                modifier = Modifier.weight(1.5f)
+                                            )
+                                            Text(
+                                                text = "Tax: ${formatter.format(withdrawal.taxPaid)}", 
+                                                fontSize = 11.sp, 
+                                                color = if (withdrawal.taxPaid > 0.0) ColorFinalSalary else TextSecondary,
+                                                fontWeight = if (withdrawal.taxPaid > 0.0) FontWeight.Bold else FontWeight.Normal,
+                                                modifier = Modifier.weight(1.2f)
+                                            )
+                                        }
+                                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(CardSurface))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
                         }
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(SlateBg))
                     }

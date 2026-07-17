@@ -51,6 +51,14 @@ data class DrawdownPreferences(
 )
 
 @Serializable
+data class WithdrawalDetail(
+    val potName: String,
+    val ownerName: String,
+    val amountDrawn: Double,
+    val taxPaid: Double
+)
+
+@Serializable
 data class ProjectionResult(
     val age: Int,
     val year: Int,
@@ -61,7 +69,8 @@ data class ProjectionResult(
     val tax: Double,
     val tax1: Double = 0.0, // Chris's tax component
     val tax2: Double = 0.0, // Lisa's tax component
-    val canRetire: Boolean
+    val canRetire: Boolean,
+    val withdrawals: List<WithdrawalDetail> = emptyList()
 )
 
 @Serializable
