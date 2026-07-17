@@ -62,10 +62,34 @@ fun DashboardScreen(
     var editingAccount by remember { mutableStateOf<Account?>(null) }
     var editBalanceValue by remember { mutableStateOf("") }
 
-    // Load accounts on view launch
-    LaunchedEffect(Unit) {
-        accounts.clear()
-        accounts.addAll(repository.getAccounts())
+    // Load and correct accounts on screen resume (launch or back navigation)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                val latestDrawdown = repository.getDrawdownPreferences()
+                val rawAccounts = repository.getAccounts()
+                val processed = if (!latestDrawdown.isCouple) {
+                    rawAccounts.map {
+                        if (it.personId != "person-1") {
+                            val updated = it.copy(personId = "person-1")
+                            repository.addOrUpdateAccount(updated)
+                            updated
+                        } else {
+                            it
+                        }
+                    }
+                } else {
+                    rawAccounts
+                }
+                accounts.clear()
+                accounts.addAll(processed)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     // Version Check state
@@ -360,15 +384,6 @@ fun DashboardScreen(
                                                             fontWeight = FontWeight.ExtraBold,
                                                             maxLines = 1
                                                         )
-                                                    }
-                                                } else {
-                                                    // Ensure account personId is person-1 in single person mode
-                                                    if (account.personId != "person-1") {
-                                                        val updated = account.copy(personId = "person-1")
-                                                        repository.addOrUpdateAccount(updated)
-                                                        // Refresh list
-                                                        accounts.clear()
-                                                        accounts.addAll(repository.getAccounts())
                                                     }
                                                 }
                                                 if (account.type == AccountType.FINAL_SALARY) {
