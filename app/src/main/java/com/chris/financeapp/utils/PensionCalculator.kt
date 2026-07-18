@@ -49,7 +49,7 @@ object PensionCalculator {
 
         // Higher rate band: £50,270 to £125,140 (size: £74,870)
         if (remainingIncome > 0.0) {
-            val higherRateBandLimit = HIGHER_RATE_THRESHOLD - BASIC_RATE_THRESHOLD
+            val higherRateBandLimit = HIGHER_RATE_THRESHOLD - (PERSONAL_ALLOWANCE + BASIC_RATE_THRESHOLD)
             val taxableAtHigher = min(remainingIncome, higherRateBandLimit)
             tax += taxableAtHigher * HIGHER_RATE
             remainingIncome -= taxableAtHigher
@@ -406,11 +406,15 @@ object PensionCalculator {
                     for (pension in dcPensions) {
                         if (remainingTarget <= 0.0) break
                         if (pension.balance > 0.0) {
+                            val isLisa = pension.personId == "person-2"
+                            val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
+                            val ownerAge = if (isLisa) age2 else age1
+                            if (!isOwnerRetired || ownerAge < 55) continue
+
                             val withdrawal = min(pension.balance, remainingTarget / netFractionInBasicRate)
                             if (withdrawal > 0.0) {
                                 val tfPart = withdrawal * (1.0 - taxableFraction)
                                 val taxablePart = withdrawal * taxableFraction
-                                val isLisa = pension.personId == "person-2"
                                 
                                 val taxBefore = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
                                 if (isLisa) {
@@ -578,11 +582,15 @@ object PensionCalculator {
                     for (pension in dcPensions) {
                         if (remainingTarget <= 0.0) break
                         if (pension.balance > 0.0) {
+                            val isLisa = pension.personId == "person-2"
+                            val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
+                            val ownerAge = if (isLisa) age2 else age1
+                            if (!isOwnerRetired || ownerAge < 55) continue
+
                             val withdrawal = min(pension.balance, remainingTarget / netFractionInHigherRate)
                             if (withdrawal > 0.0) {
                                 val tfPart = withdrawal * (1.0 - taxableFraction)
                                 val taxablePart = withdrawal * taxableFraction
-                                val isLisa = pension.personId == "person-2"
                                 
                                 val taxBefore = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
                                 if (isLisa) {

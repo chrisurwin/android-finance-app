@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
         handleDeepLink(intent)
 
         setContent {
-            FinanceAppTheme {
+            FinanceAppTheme(darkTheme = true) {
                 Surface(
                     modifier = Modifier.fillMaxSize().safeDrawingPadding(),
                     color = MaterialTheme.colorScheme.background
