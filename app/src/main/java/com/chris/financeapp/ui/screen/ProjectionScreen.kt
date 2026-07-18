@@ -8,6 +8,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Share
+import androidx.core.content.FileProvider
+import android.content.Intent
+import android.content.Context
+import android.widget.Toast
+import java.io.File
+import java.io.FileOutputStream
+import com.chris.financeapp.data.model.Person
+import com.chris.financeapp.data.model.ProjectionResult
+import com.chris.financeapp.utils.XlsxWriter
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -174,17 +184,33 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                }
+                Text(
+                    text = "Retirement Projections",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
             }
-            Text(
-                text = "Retirement Projections",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
+
+            val context = LocalContext.current
+            IconButton(
+                onClick = {
+                    exportProjectionsToXlsx(context, person1, person2, drawdown.isCouple, projection.results)
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = "Export Excel",
+                    tint = PrimaryIndigo
+                )
+            }
         }
 
         // 1. Selector controls
@@ -776,5 +802,77 @@ fun <T> SegmentedControl(
                 )
             }
         }
+    }
+}
+
+private fun exportProjectionsToXlsx(
+    context: Context,
+    person1: Person,
+    person2: Person,
+    isCouple: Boolean,
+    results: List<ProjectionResult>
+) {
+    try {
+        val fileName = "Retirement_Projections.xlsx"
+        val cacheFile = File(context.externalCacheDir, fileName)
+        val outputStream = FileOutputStream(cacheFile)
+
+        val headers = mutableListOf(
+            "Year",
+            "Age (${person1.name})",
+            "Age (${person2.name})",
+            "Total Pension Value (£)",
+            "Total Savings (£)",
+            "Gross Annual Income (£)",
+            "Net Annual Income (£)",
+            "Total Tax (£)",
+            "Tax (${person1.name}) (£)",
+            "Tax (${person2.name}) (£)",
+            "Retirement Feasible?",
+            "Withdrawal Details"
+        )
+        if (!isCouple) {
+            headers.remove("Age (${person2.name})")
+            headers.remove("Tax (${person2.name}) (£)")
+        }
+
+        val rows = results.map { res ->
+            val row = mutableListOf<Any>()
+            row.add(res.year)
+            row.add(res.age) // Age 1
+            if (isCouple) {
+                val ageDiff = person2.birthYear - person1.birthYear
+                row.add(res.age + ageDiff)
+            }
+            row.add(res.totalPensionValue)
+            row.add(res.totalSavings)
+            row.add(res.annualIncome)
+            row.add(res.netIncome)
+            row.add(res.tax)
+            row.add(res.tax1)
+            if (isCouple) {
+                row.add(res.tax2)
+            }
+            row.add(if (res.canRetire) "Yes" else "No")
+
+            val withdrawalsText = res.withdrawals.joinToString("\n") { detail ->
+                "${detail.potName} (${detail.ownerName}): Drawn £${String.format("%.2f", detail.amountDrawn)}, Tax £${String.format("%.2f", detail.taxPaid)}"
+            }
+            row.add(withdrawalsText)
+            row
+        }
+
+        XlsxWriter.writeXlsx(headers, rows, outputStream)
+        outputStream.close()
+
+        val fileUri = FileProvider.getUriForFile(context, "com.chris.financeapp.fileprovider", cacheFile)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            putExtra(Intent.EXTRA_STREAM, fileUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Export Projections Excel"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Export failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
     }
 }
