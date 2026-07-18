@@ -77,6 +77,9 @@ object PensionCalculator {
         val currentAge1 = currentYear - person1.birthYear
         val currentAge2 = currentYear - person2.birthYear
         val endAge = preferences.endAge
+        
+        val minPensionAge1 = if (person1.birthYear < 1973) 55 else 57
+        val minPensionAge2 = if (person2.birthYear < 1973) 55 else 57
 
         val (currentAgeActive, activePersonName) = when (projectionType) {
             ProjectionType.INDIVIDUAL_CHRIS -> Pair(currentAge1, person1.name)
@@ -316,7 +319,7 @@ object PensionCalculator {
                     // --- STANDARD DRAWDOWN STRATEGY (ISA First) ---
                     
                     // Step 1: Harvest pension up to personal allowance
-                    if (isRetired1 && age1 >= 55 && remainingTarget > 0.0) {
+                    if (isRetired1 && age1 >= minPensionAge1 && remainingTarget > 0.0) {
                         val remainingAllowance1 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome1)
                         if (remainingAllowance1 > 0.0) {
                             val maxHarvest = remainingAllowance1 / taxableFraction
@@ -342,7 +345,7 @@ object PensionCalculator {
                         }
                     }
 
-                    if (isRetired2 && age2 >= 55 && remainingTarget > 0.0) {
+                    if (isRetired2 && age2 >= minPensionAge2 && remainingTarget > 0.0) {
                         val remainingAllowance2 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome2)
                         if (remainingAllowance2 > 0.0) {
                             val maxHarvest = remainingAllowance2 / taxableFraction
@@ -409,7 +412,8 @@ object PensionCalculator {
                             val isLisa = pension.personId == "person-2"
                             val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
                             val ownerAge = if (isLisa) age2 else age1
-                            if (!isOwnerRetired || ownerAge < 55) continue
+                            val minAge = if (isLisa) minPensionAge2 else minPensionAge1
+                            if (!isOwnerRetired || ownerAge < minAge) continue
 
                             val withdrawal = min(pension.balance, remainingTarget / netFractionInBasicRate)
                             if (withdrawal > 0.0) {
@@ -437,7 +441,7 @@ object PensionCalculator {
                     // --- TAX-MINIMIZED DRAWDOWN STRATEGY (Pension to Basic Rate first, preserving ISA) ---
                     
                     // Step 1: Harvest pension up to personal allowance
-                    if (isRetired1 && age1 >= 55 && remainingTarget > 0.0) {
+                    if (isRetired1 && age1 >= minPensionAge1 && remainingTarget > 0.0) {
                         val remainingAllowance1 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome1)
                         if (remainingAllowance1 > 0.0) {
                             val maxHarvest = remainingAllowance1 / taxableFraction
@@ -463,7 +467,7 @@ object PensionCalculator {
                         }
                     }
 
-                    if (isRetired2 && age2 >= 55 && remainingTarget > 0.0) {
+                    if (isRetired2 && age2 >= minPensionAge2 && remainingTarget > 0.0) {
                         val remainingAllowance2 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome2)
                         if (remainingAllowance2 > 0.0) {
                             val maxHarvest = remainingAllowance2 / taxableFraction
@@ -491,7 +495,7 @@ object PensionCalculator {
 
                     // Step 2: Draw from pensions up to the Basic Rate Threshold (taxable income up to £50,270)
                     val basicRateLimit = PERSONAL_ALLOWANCE + BASIC_RATE_THRESHOLD
-                    if (isRetired1 && age1 >= 55 && remainingTarget > 0.0) {
+                    if (isRetired1 && age1 >= minPensionAge1 && remainingTarget > 0.0) {
                         val remainingBasicRateAllowance = max(0.0, basicRateLimit - taxableIncome1)
                         if (remainingBasicRateAllowance > 0.0) {
                             val maxBasicRateDraw = remainingBasicRateAllowance / taxableFraction
@@ -517,7 +521,7 @@ object PensionCalculator {
                         }
                     }
 
-                    if (isRetired2 && age2 >= 55 && remainingTarget > 0.0) {
+                    if (isRetired2 && age2 >= minPensionAge2 && remainingTarget > 0.0) {
                         val remainingBasicRateAllowance = max(0.0, basicRateLimit - taxableIncome2)
                         if (remainingBasicRateAllowance > 0.0) {
                             val maxBasicRateDraw = remainingBasicRateAllowance / taxableFraction
@@ -585,7 +589,8 @@ object PensionCalculator {
                             val isLisa = pension.personId == "person-2"
                             val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
                             val ownerAge = if (isLisa) age2 else age1
-                            if (!isOwnerRetired || ownerAge < 55) continue
+                            val minAge = if (isLisa) minPensionAge2 else minPensionAge1
+                            if (!isOwnerRetired || ownerAge < minAge) continue
 
                             val withdrawal = min(pension.balance, remainingTarget / netFractionInHigherRate)
                             if (withdrawal > 0.0) {
