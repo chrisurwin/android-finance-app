@@ -14,7 +14,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.*
@@ -363,7 +363,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { showWebView = false }) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
                 }
                 
                 Text(
@@ -449,7 +449,7 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { onNavigateBack() }) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
             }
             Text(
                 text = "Link New Account",
