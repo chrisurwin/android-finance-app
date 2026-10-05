@@ -18,49 +18,185 @@ import kotlin.math.pow
 
 object PensionCalculator {
 
+    // UK Lump Sum Allowance (LSA) effective 6 April 2024:
+    // The maximum tax-free lump sum that can be taken across pensions is capped at £268,275 per individual.
+    const val MAX_TAX_FREE_LUMP_SUM = 268275.0
+
     private const val FULL_STATE_PENSION_WEEKLY = 230.25
     private const val FULL_STATE_PENSION_ANNUAL = FULL_STATE_PENSION_WEEKLY * 52.0
-    private const val STATE_PENSION_AGE = 67
 
-    // UK Tax Rates (2024/25)
+    // UK Income Tax Rates (2024/25 - 2025/26)
     private const val PERSONAL_ALLOWANCE = 12570.0
-    private const val BASIC_RATE_THRESHOLD = 37700.0 // up to 50,270
-    private const val HIGHER_RATE_THRESHOLD = 125140.0 // up to 125,140
+    private const val BASIC_RATE_THRESHOLD = 37700.0 // up to £50,270 with standard PA
+    private const val HIGHER_RATE_THRESHOLD = 125140.0 // up to £125,140
     
     private const val BASIC_RATE = 0.20
     private const val HIGHER_RATE = 0.40
     private const val ADDITIONAL_RATE = 0.45
+
+    /**
+     * Determines UK legislated State Pension age based on birth year.
+     * Prevents overestimating retirement income by granting State Pension too early.
+     */
+    fun getStatePensionAge(birthYear: Int): Int {
+        return when {
+            birthYear < 1961 -> 66
+            birthYear <= 1977 -> 67
+            else -> 68
+        }
+    }
 
     fun calculateStatePension(qualifyingYears: Int): Double {
         val proportion = min(qualifyingYears / 35.0, 1.0)
         return FULL_STATE_PENSION_ANNUAL * proportion
     }
 
+    /**
+     * Calculates UK Income Tax including the Personal Allowance taper for incomes above £100,000.
+     * £1 of Personal Allowance is lost for every £2 of income above £100,000 (0 allowance at £125,140).
+     */
     fun calculateIncomeTax(taxableIncome: Double): Double {
-        var tax = 0.0
-        var remainingIncome = max(0.0, taxableIncome - PERSONAL_ALLOWANCE)
+        if (taxableIncome <= 0.0) return 0.0
 
-        // Basic rate band: £12,570 to £50,270 (size: £37,700)
+        // Personal Allowance taper (£1 reduction for every £2 over £100,000)
+        val personalAllowance = max(0.0, PERSONAL_ALLOWANCE - max(0.0, taxableIncome - 100000.0) / 2.0)
+        var remainingIncome = max(0.0, taxableIncome - personalAllowance)
+        var tax = 0.0
+
+        // Basic rate band: £37,700 of income above personal allowance at 20%
         if (remainingIncome > 0.0) {
             val taxableAtBasic = min(remainingIncome, BASIC_RATE_THRESHOLD)
             tax += taxableAtBasic * BASIC_RATE
             remainingIncome -= taxableAtBasic
         }
 
-        // Higher rate band: £50,270 to £125,140 (size: £74,870)
-        if (remainingIncome > 0.0) {
-            val higherRateBandLimit = HIGHER_RATE_THRESHOLD - (PERSONAL_ALLOWANCE + BASIC_RATE_THRESHOLD)
-            val taxableAtHigher = min(remainingIncome, higherRateBandLimit)
+        // Higher rate band: total income from (personalAllowance + BASIC_RATE_THRESHOLD) up to HIGHER_RATE_THRESHOLD (£125,140) at 40%
+        if (remainingIncome > 0.0 && taxableIncome <= HIGHER_RATE_THRESHOLD) {
+            tax += remainingIncome * HIGHER_RATE
+            remainingIncome = 0.0
+        } else if (remainingIncome > 0.0) {
+            val higherRateBandSize = max(0.0, HIGHER_RATE_THRESHOLD - (personalAllowance + BASIC_RATE_THRESHOLD))
+            val taxableAtHigher = min(remainingIncome, higherRateBandSize)
             tax += taxableAtHigher * HIGHER_RATE
             remainingIncome -= taxableAtHigher
-        }
 
-        // Additional rate band: > £125,140
-        if (remainingIncome > 0.0) {
-            tax += remainingIncome * ADDITIONAL_RATE
+            // Additional rate band: > £125,140 at 45%
+            if (remainingIncome > 0.0) {
+                tax += remainingIncome * ADDITIONAL_RATE
+            }
         }
 
         return tax
+    }
+
+    data class PensionWithdrawalResult(
+        val grossWithdrawal: Double,
+        val taxFreeAmount: Double,
+        val taxableAmount: Double,
+        val taxPaid: Double,
+        val netReceived: Double
+    )
+
+    /**
+     * Exact binary search solver to determine the gross pension withdrawal needed to deliver netNeeded cash,
+     * taking into account current taxable income, available Lump Sum Allowance (LSA), upfront vs as-you-go,
+     * and optional taxable income caps (e.g. harvesting up to Personal Allowance or Basic Rate).
+     */
+    fun calculatePensionWithdrawal(
+        potBalance: Double,
+        netNeeded: Double,
+        currentTaxableIncome: Double,
+        remainingLSA: Double,
+        isUpFront: Boolean,
+        maxTaxableAmount: Double = Double.MAX_VALUE
+    ): PensionWithdrawalResult {
+        if (potBalance <= 0.0 || netNeeded <= 0.0 || maxTaxableAmount <= 0.0) {
+            return PensionWithdrawalResult(0.0, 0.0, 0.0, 0.0, 0.0)
+        }
+
+        fun evaluate(gross: Double): PensionWithdrawalResult {
+            val tf = if (isUpFront) 0.0 else min(gross * 0.25, remainingLSA)
+            val taxable = gross - tf
+            val taxBefore = calculateIncomeTax(currentTaxableIncome)
+            val taxAfter = calculateIncomeTax(currentTaxableIncome + taxable)
+            val taxPaid = max(0.0, taxAfter - taxBefore)
+            val net = gross - taxPaid
+            return PensionWithdrawalResult(gross, tf, taxable, taxPaid, net)
+        }
+
+        val maxGrossAllowed = if (maxTaxableAmount < Double.MAX_VALUE) {
+            if (isUpFront) {
+                maxTaxableAmount
+            } else {
+                if (maxTaxableAmount / 0.75 * 0.25 <= remainingLSA) {
+                    maxTaxableAmount / 0.75
+                } else {
+                    maxTaxableAmount + remainingLSA
+                }
+            }
+        } else {
+            potBalance
+        }
+
+        val effectiveMaxGross = min(potBalance, maxGrossAllowed)
+        if (effectiveMaxGross <= 0.0) {
+            return PensionWithdrawalResult(0.0, 0.0, 0.0, 0.0, 0.0)
+        }
+
+        val maxRes = evaluate(effectiveMaxGross)
+        if (maxRes.netReceived <= netNeeded) {
+            return maxRes
+        }
+
+        var low = 0.0
+        var high = effectiveMaxGross
+        for (i in 0 until 30) {
+            val mid = (low + high) / 2.0
+            val res = evaluate(mid)
+            if (res.netReceived < netNeeded) {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        return evaluate(high)
+    }
+
+    /**
+     * Exact solver for General Investment Account (GIA) withdrawals assuming conservative income taxation on withdrawals.
+     */
+    fun calculateGiaWithdrawal(
+        potBalance: Double,
+        netNeeded: Double,
+        currentTaxableIncome: Double
+    ): Pair<Double, Double> {
+        if (potBalance <= 0.0 || netNeeded <= 0.0) return Pair(0.0, 0.0)
+
+        fun netOf(gross: Double): Double {
+            val taxBefore = calculateIncomeTax(currentTaxableIncome)
+            val taxAfter = calculateIncomeTax(currentTaxableIncome + gross)
+            return gross - max(0.0, taxAfter - taxBefore)
+        }
+
+        if (netOf(potBalance) <= netNeeded) {
+            val taxBefore = calculateIncomeTax(currentTaxableIncome)
+            val taxAfter = calculateIncomeTax(currentTaxableIncome + potBalance)
+            return Pair(potBalance, max(0.0, taxAfter - taxBefore))
+        }
+
+        var low = 0.0
+        var high = potBalance
+        for (i in 0 until 30) {
+            val mid = (low + high) / 2.0
+            if (netOf(mid) < netNeeded) {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        val taxBefore = calculateIncomeTax(currentTaxableIncome)
+        val taxAfter = calculateIncomeTax(currentTaxableIncome + high)
+        return Pair(high, max(0.0, taxAfter - taxBefore))
     }
 
     fun calculateProjections(
@@ -80,6 +216,9 @@ object PensionCalculator {
         
         val minPensionAge1 = if (person1.birthYear < 1973) 55 else 57
         val minPensionAge2 = if (person2.birthYear < 1973) 55 else 57
+
+        val spAge1 = getStatePensionAge(person1.birthYear)
+        val spAge2 = getStatePensionAge(person2.birthYear)
 
         val (currentAgeActive, activePersonName) = when (projectionType) {
             ProjectionType.INDIVIDUAL_CHRIS -> Pair(currentAge1, person1.name)
@@ -146,6 +285,10 @@ object PensionCalculator {
         var hasTakenLumpSum2 = false
         var totalTaxPaid = 0.0
 
+        // Track remaining UK Lump Sum Allowance (max £268,275 per individual across lifetime)
+        var remainingTaxFreeLumpSum1 = MAX_TAX_FREE_LUMP_SUM
+        var remainingTaxFreeLumpSum2 = MAX_TAX_FREE_LUMP_SUM
+
         for (yearOffset in 0..yearsToSimulate) {
             val age1 = currentAge1 + yearOffset
             val age2 = currentAge2 + yearOffset
@@ -165,22 +308,51 @@ object PensionCalculator {
 
             val isRetired1 = if (projectionType == ProjectionType.INDIVIDUAL_LISA) false else age1 >= retirementAge1
             val isRetired2 = if (projectionType == ProjectionType.INDIVIDUAL_CHRIS) false else age2 >= retirementAge2
+            val anyRetired = isRetired1 || isRetired2
+
+            val isRetiredActive = when (projectionType) {
+                ProjectionType.INDIVIDUAL_CHRIS -> isRetired1
+                ProjectionType.INDIVIDUAL_LISA -> isRetired2
+                ProjectionType.COUPLE -> anyRetired
+            }
 
             val yearWithdrawals = mutableListOf<WithdrawalDetail>()
 
-            // Upfront Lump Sum Option logic:
-            // Extract 25% of the DC pensions as a tax-free lump sum in the first year of retirement, adding it to savings.
+            // 1. Contributions for active workers
+            dcPensions.forEach { pension ->
+                val isOwnerRetired = if (pension.personId == "person-2") isRetired2 else isRetired1
+                if (!isOwnerRetired) {
+                    val totalContrib = (pension.monthlyContribution + pension.employerContribution) * 12.0 * inflationFactor
+                    pension.balance += totalContrib
+                }
+            }
+
+            savings.forEach { saving ->
+                val isOwnerRetired = if (saving.personId == "person-2") isRetired2 else isRetired1
+                if (!isOwnerRetired) {
+                    val totalContrib = saving.monthlyContribution * 12.0 * inflationFactor
+                    saving.balance += totalContrib
+                }
+            }
+
+            // 2. Upfront Lump Sum Option logic:
+            // Extract 25% of DC pensions capped at available Lump Sum Allowance (£268,275 per person)
+            // Can ONLY be taken at or after reaching minimum pension age (55/57)
             if (preferences.lumpSumOption == LumpSumOption.UP_FRONT) {
-                if (isRetired1 && !hasTakenLumpSum1) {
+                if (isRetired1 && age1 >= minPensionAge1 && !hasTakenLumpSum1) {
                     var totalLumpSum1 = 0.0
                     dcPensions = dcPensions.map { pension ->
                         if (pension.personId != "person-2") {
-                            val lump = pension.balance * 0.25
-                            totalLumpSum1 += lump
-                            if (lump > 0.0) {
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", person1.name, lump, 0.0))
+                            val maxLump = pension.balance * 0.25
+                            val actualLump = min(maxLump, remainingTaxFreeLumpSum1)
+                            if (actualLump > 0.0) {
+                                totalLumpSum1 += actualLump
+                                remainingTaxFreeLumpSum1 -= actualLump
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", person1.name, actualLump, 0.0))
+                                pension.copy(balance = pension.balance - actualLump)
+                            } else {
+                                pension
                             }
-                            pension.copy(balance = pension.balance * 0.75)
                         } else {
                             pension
                         }
@@ -195,22 +367,26 @@ object PensionCalculator {
                             if (saveIndex >= 0) {
                                 savings[saveIndex].balance += totalLumpSum1
                             } else {
-                                savings.add(Account(id = "lump-sum-isa-1", name = "Tax-Free Lump Sum", type = AccountType.ISA, institution = Institution.HOSTED, balance = totalLumpSum1, personId = "person-1"))
+                                savings.add(Account(id = "lump-sum-isa-1", name = "Tax-Free Lump Sum", type = AccountType.ISA, institution = Institution.HOSTED, balance = totalLumpSum1, personId = "person-1", interestRate = assumptions.cashReturn * 100))
                             }
                         }
                     }
                     hasTakenLumpSum1 = true
                 }
-                if (isRetired2 && !hasTakenLumpSum2) {
+                if (isRetired2 && age2 >= minPensionAge2 && !hasTakenLumpSum2) {
                     var totalLumpSum2 = 0.0
                     dcPensions = dcPensions.map { pension ->
                         if (pension.personId == "person-2") {
-                            val lump = pension.balance * 0.25
-                            totalLumpSum2 += lump
-                            if (lump > 0.0) {
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", person2.name, lump, 0.0))
+                            val maxLump = pension.balance * 0.25
+                            val actualLump = min(maxLump, remainingTaxFreeLumpSum2)
+                            if (actualLump > 0.0) {
+                                totalLumpSum2 += actualLump
+                                remainingTaxFreeLumpSum2 -= actualLump
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name} (Lump Sum)", person2.name, actualLump, 0.0))
+                                pension.copy(balance = pension.balance - actualLump)
+                            } else {
+                                pension
                             }
-                            pension.copy(balance = pension.balance * 0.75)
                         } else {
                             pension
                         }
@@ -225,7 +401,7 @@ object PensionCalculator {
                             if (saveIndex >= 0) {
                                 savings[saveIndex].balance += totalLumpSum2
                             } else {
-                                savings.add(Account(id = "lump-sum-isa-2", name = "Tax-Free Lump Sum", type = AccountType.ISA, institution = Institution.HOSTED, balance = totalLumpSum2, personId = "person-2"))
+                                savings.add(Account(id = "lump-sum-isa-2", name = "Tax-Free Lump Sum", type = AccountType.ISA, institution = Institution.HOSTED, balance = totalLumpSum2, personId = "person-2", interestRate = assumptions.cashReturn * 100))
                             }
                         }
                     }
@@ -233,32 +409,10 @@ object PensionCalculator {
                 }
             }
 
-            // Grow assets and add contributions for active builders
-            dcPensions = dcPensions.map { pension ->
-                val isOwnerRetired = if (pension.personId == "person-2") isRetired2 else isRetired1
-                val realReturn = portfolioGrowthRate - (pension.annualManagementCharge / 100.0)
-                if (!isOwnerRetired) {
-                    val totalContrib = (pension.monthlyContribution + pension.employerContribution) * 12.0 * inflationFactor
-                    pension.copy(balance = (pension.balance + totalContrib) * (1.0 + realReturn))
-                } else {
-                    pension.copy(balance = pension.balance * (1.0 + realReturn))
-                }
-            }.toMutableList()
-
-            savings = savings.map { saving ->
-                val isOwnerRetired = if (saving.personId == "person-2") isRetired2 else isRetired1
-                if (!isOwnerRetired) {
-                    val totalContrib = saving.monthlyContribution * 12.0 * inflationFactor
-                    saving.copy(balance = (saving.balance + totalContrib) * (1.0 + (saving.interestRate / 100.0)))
-                } else {
-                    saving.copy(balance = saving.balance * (1.0 + (saving.interestRate / 100.0)))
-                }
-            }.toMutableList()
-
-            if (isRetired1 || isRetired2) {
-                // Calculate State Pension (from age 67) for each retired person
-                val statePension1 = if (isRetired1 && age1 >= STATE_PENSION_AGE) calculateStatePension(35) * inflationFactor else 0.0
-                val statePension2 = if (isRetired2 && age2 >= STATE_PENSION_AGE) calculateStatePension(35) * inflationFactor else 0.0
+            if (anyRetired) {
+                // Calculate State Pension (from statutory state pension age)
+                val statePension1 = if (isRetired1 && age1 >= spAge1) calculateStatePension(35) * inflationFactor else 0.0
+                val statePension2 = if (isRetired2 && age2 >= spAge2) calculateStatePension(35) * inflationFactor else 0.0
                 
                 // Calculate Defined Benefit (Final Salary) payouts
                 var dbIncome1 = 0.0
@@ -285,11 +439,10 @@ object PensionCalculator {
                 var taxableIncome1 = statePension1 + dbIncome1
                 var taxableIncome2 = statePension2 + dbIncome2
                 
-                // Calculate base tax for guaranteed incomes
+                // Base tax on guaranteed incomes
                 val baseTax1 = calculateIncomeTax(taxableIncome1)
                 val baseTax2 = calculateIncomeTax(taxableIncome2)
 
-                // Log base withdrawals (State Pension & DB final salaries) with proportional tax allocation
                 if (statePension1 > 0.0) {
                     val taxFraction = if (taxableIncome1 > 0.0) statePension1 / taxableIncome1 else 0.0
                     yearWithdrawals.add(WithdrawalDetail("State Pension", person1.name, statePension1, baseTax1 * taxFraction))
@@ -307,72 +460,69 @@ object PensionCalculator {
                     yearWithdrawals.add(WithdrawalDetail(name, person2.name, payout, baseTax2 * taxFraction))
                 }
 
-                // Calculate net guaranteed income after tax
                 val netGuaranteed = (taxableIncome1 - baseTax1) + (taxableIncome2 - baseTax2)
                 var remainingTarget = max(0.0, targetIncome - netGuaranteed)
 
-                // Define taxable fraction of pension draws
-                val taxableFraction = if (preferences.lumpSumOption == LumpSumOption.UP_FRONT) 1.0 else 0.75
-                val netFractionInBasicRate = (1.0 - taxableFraction) + taxableFraction * 0.80
+                val isUpFront = preferences.lumpSumOption == LumpSumOption.UP_FRONT
 
                 if (preferences.strategy == DrawdownStrategy.STANDARD) {
-                    // --- STANDARD DRAWDOWN STRATEGY (ISA First) ---
+                    // --- STANDARD DRAWDOWN STRATEGY (Harvest PA -> ISAs/Cash -> GIA -> Pensions) ---
                     
                     // Step 1: Harvest pension up to personal allowance
                     if (isRetired1 && age1 >= minPensionAge1 && remainingTarget > 0.0) {
-                        val remainingAllowance1 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome1)
-                        if (remainingAllowance1 > 0.0) {
-                            val maxHarvest = remainingAllowance1 / taxableFraction
-                            val person1Pensions = dcPensions.filter { it.personId != "person-2" }
-                            for (pension in person1Pensions) {
-                                if (remainingTarget <= 0.0) break
-                                val withdrawal = min(pension.balance, min(maxHarvest, remainingTarget))
-                                if (withdrawal > 0.0) {
-                                    val tfPart = withdrawal * (1.0 - taxableFraction)
-                                    val taxablePart = withdrawal * taxableFraction
-                                    
-                                    val taxBefore = calculateIncomeTax(taxableIncome1)
-                                    taxableIncome1 += taxablePart
-                                    val taxAfter = calculateIncomeTax(taxableIncome1)
-                                    val taxPaidForThisDraw = taxAfter - taxBefore
+                        val person1Pensions = dcPensions.filter { it.personId != "person-2" }
+                        for (pension in person1Pensions) {
+                            if (remainingTarget <= 0.0) break
+                            val allowance1 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome1)
+                            if (allowance1 <= 0.0) break
 
-                                    taxFreeIncome += tfPart
-                                    pension.balance -= withdrawal
-                                    remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, withdrawal, taxPaidForThisDraw))
-                                }
+                            val res = calculatePensionWithdrawal(
+                                potBalance = pension.balance,
+                                netNeeded = remainingTarget,
+                                currentTaxableIncome = taxableIncome1,
+                                remainingLSA = remainingTaxFreeLumpSum1,
+                                isUpFront = isUpFront,
+                                maxTaxableAmount = allowance1
+                            )
+                            if (res.grossWithdrawal > 0.0) {
+                                taxFreeIncome += res.taxFreeAmount
+                                remainingTaxFreeLumpSum1 -= res.taxFreeAmount
+                                taxableIncome1 += res.taxableAmount
+                                pension.balance -= res.grossWithdrawal
+                                remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, res.grossWithdrawal, res.taxPaid))
                             }
                         }
                     }
 
                     if (isRetired2 && age2 >= minPensionAge2 && remainingTarget > 0.0) {
-                        val remainingAllowance2 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome2)
-                        if (remainingAllowance2 > 0.0) {
-                            val maxHarvest = remainingAllowance2 / taxableFraction
-                            val person2Pensions = dcPensions.filter { it.personId == "person-2" }
-                            for (pension in person2Pensions) {
-                                if (remainingTarget <= 0.0) break
-                                val withdrawal = min(pension.balance, min(maxHarvest, remainingTarget))
-                                if (withdrawal > 0.0) {
-                                    val tfPart = withdrawal * (1.0 - taxableFraction)
-                                    val taxablePart = withdrawal * taxableFraction
-                                    
-                                    val taxBefore = calculateIncomeTax(taxableIncome2)
-                                    taxableIncome2 += taxablePart
-                                    val taxAfter = calculateIncomeTax(taxableIncome2)
-                                    val taxPaidForThisDraw = taxAfter - taxBefore
+                        val person2Pensions = dcPensions.filter { it.personId == "person-2" }
+                        for (pension in person2Pensions) {
+                            if (remainingTarget <= 0.0) break
+                            val allowance2 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome2)
+                            if (allowance2 <= 0.0) break
 
-                                    taxFreeIncome += tfPart
-                                    pension.balance -= withdrawal
-                                    remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, withdrawal, taxPaidForThisDraw))
-                                }
+                            val res = calculatePensionWithdrawal(
+                                potBalance = pension.balance,
+                                netNeeded = remainingTarget,
+                                currentTaxableIncome = taxableIncome2,
+                                remainingLSA = remainingTaxFreeLumpSum2,
+                                isUpFront = isUpFront,
+                                maxTaxableAmount = allowance2
+                            )
+                            if (res.grossWithdrawal > 0.0) {
+                                taxFreeIncome += res.taxFreeAmount
+                                remainingTaxFreeLumpSum2 -= res.taxFreeAmount
+                                taxableIncome2 += res.taxableAmount
+                                pension.balance -= res.grossWithdrawal
+                                remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, res.grossWithdrawal, res.taxPaid))
                             }
                         }
                     }
 
-                    // Step 2: Draw from ISAs next (tax-free)
-                    for (saving in savings.filter { it.type == AccountType.ISA }) {
+                    // Step 2: Draw from tax-free savings (ISAs and Current accounts)
+                    for (saving in savings.filter { it.type == AccountType.ISA || it.type == AccountType.CURRENT }) {
                         if (remainingTarget <= 0.0) break
                         val withdrawal = min(saving.balance, remainingTarget)
                         if (withdrawal > 0.0) {
@@ -384,56 +534,57 @@ object PensionCalculator {
                         }
                     }
 
-                    // Step 3: Draw from GIA next (taxable savings)
-                    for (saving in savings.filter { it.type != AccountType.ISA }) {
+                    // Step 3: Draw from GIA (taxable savings)
+                    for (saving in savings.filter { it.type == AccountType.GENERAL_INVESTMENT }) {
                         if (remainingTarget <= 0.0) break
-                        val withdrawal = min(saving.balance, remainingTarget)
+                        val isLisa = saving.personId == "person-2"
+                        val currentTaxable = if (isLisa) taxableIncome2 else taxableIncome1
+                        val (withdrawal, taxPaid) = calculateGiaWithdrawal(saving.balance, remainingTarget, currentTaxable)
                         if (withdrawal > 0.0) {
-                            val isLisa = saving.personId == "person-2"
-                            val taxBefore = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
                             if (isLisa) {
                                 taxableIncome2 += withdrawal
                             } else {
                                 taxableIncome1 += withdrawal
                             }
-                            val taxAfter = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
-                            val taxPaidForThisDraw = taxAfter - taxBefore
-                            
                             saving.balance -= withdrawal
-                            remainingTarget -= withdrawal
-                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
+                            val netReceived = withdrawal - taxPaid
+                            remainingTarget = max(0.0, remainingTarget - netReceived)
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaid))
                         }
                     }
 
                     // Step 4: Draw remaining from pension
                     for (pension in dcPensions) {
                         if (remainingTarget <= 0.0) break
-                        if (pension.balance > 0.0) {
-                            val isLisa = pension.personId == "person-2"
-                            val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
-                            val ownerAge = if (isLisa) age2 else age1
-                            val minAge = if (isLisa) minPensionAge2 else minPensionAge1
-                            if (!isOwnerRetired || ownerAge < minAge) continue
+                        if (pension.balance <= 0.0) continue
+                        val isLisa = pension.personId == "person-2"
+                        val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
+                        val ownerAge = if (isLisa) age2 else age1
+                        val minAge = if (isLisa) minPensionAge2 else minPensionAge1
+                        if (!isOwnerRetired || ownerAge < minAge) continue
 
-                            val withdrawal = min(pension.balance, remainingTarget / netFractionInBasicRate)
-                            if (withdrawal > 0.0) {
-                                val tfPart = withdrawal * (1.0 - taxableFraction)
-                                val taxablePart = withdrawal * taxableFraction
-                                
-                                val taxBefore = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
-                                if (isLisa) {
-                                    taxableIncome2 += taxablePart
-                                } else {
-                                    taxableIncome1 += taxablePart
-                                }
-                                val taxAfter = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
-                                val taxPaidForThisDraw = taxAfter - taxBefore
+                        val currentTaxable = if (isLisa) taxableIncome2 else taxableIncome1
+                        val currentLSA = if (isLisa) remainingTaxFreeLumpSum2 else remainingTaxFreeLumpSum1
 
-                                taxFreeIncome += tfPart
-                                pension.balance -= withdrawal
-                                remainingTarget -= (tfPart + taxablePart * 0.80)
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
+                        val res = calculatePensionWithdrawal(
+                            potBalance = pension.balance,
+                            netNeeded = remainingTarget,
+                            currentTaxableIncome = currentTaxable,
+                            remainingLSA = currentLSA,
+                            isUpFront = isUpFront
+                        )
+                        if (res.grossWithdrawal > 0.0) {
+                            taxFreeIncome += res.taxFreeAmount
+                            if (isLisa) {
+                                remainingTaxFreeLumpSum2 -= res.taxFreeAmount
+                                taxableIncome2 += res.taxableAmount
+                            } else {
+                                remainingTaxFreeLumpSum1 -= res.taxFreeAmount
+                                taxableIncome1 += res.taxableAmount
                             }
+                            pension.balance -= res.grossWithdrawal
+                            remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                            yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) person2.name else person1.name, res.grossWithdrawal, res.taxPaid))
                         }
                     }
 
@@ -442,113 +593,113 @@ object PensionCalculator {
                     
                     // Step 1: Harvest pension up to personal allowance
                     if (isRetired1 && age1 >= minPensionAge1 && remainingTarget > 0.0) {
-                        val remainingAllowance1 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome1)
-                        if (remainingAllowance1 > 0.0) {
-                            val maxHarvest = remainingAllowance1 / taxableFraction
-                            val person1Pensions = dcPensions.filter { it.personId != "person-2" }
-                            for (pension in person1Pensions) {
-                                if (remainingTarget <= 0.0) break
-                                val withdrawal = min(pension.balance, min(maxHarvest, remainingTarget))
-                                if (withdrawal > 0.0) {
-                                    val tfPart = withdrawal * (1.0 - taxableFraction)
-                                    val taxablePart = withdrawal * taxableFraction
-                                    
-                                    val taxBefore = calculateIncomeTax(taxableIncome1)
-                                    taxableIncome1 += taxablePart
-                                    val taxAfter = calculateIncomeTax(taxableIncome1)
-                                    val taxPaidForThisDraw = taxAfter - taxBefore
+                        val person1Pensions = dcPensions.filter { it.personId != "person-2" }
+                        for (pension in person1Pensions) {
+                            if (remainingTarget <= 0.0) break
+                            val allowance1 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome1)
+                            if (allowance1 <= 0.0) break
 
-                                    taxFreeIncome += tfPart
-                                    pension.balance -= withdrawal
-                                    remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, withdrawal, taxPaidForThisDraw))
-                                }
+                            val res = calculatePensionWithdrawal(
+                                potBalance = pension.balance,
+                                netNeeded = remainingTarget,
+                                currentTaxableIncome = taxableIncome1,
+                                remainingLSA = remainingTaxFreeLumpSum1,
+                                isUpFront = isUpFront,
+                                maxTaxableAmount = allowance1
+                            )
+                            if (res.grossWithdrawal > 0.0) {
+                                taxFreeIncome += res.taxFreeAmount
+                                remainingTaxFreeLumpSum1 -= res.taxFreeAmount
+                                taxableIncome1 += res.taxableAmount
+                                pension.balance -= res.grossWithdrawal
+                                remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, res.grossWithdrawal, res.taxPaid))
                             }
                         }
                     }
 
                     if (isRetired2 && age2 >= minPensionAge2 && remainingTarget > 0.0) {
-                        val remainingAllowance2 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome2)
-                        if (remainingAllowance2 > 0.0) {
-                            val maxHarvest = remainingAllowance2 / taxableFraction
-                            val person2Pensions = dcPensions.filter { it.personId == "person-2" }
-                            for (pension in person2Pensions) {
-                                if (remainingTarget <= 0.0) break
-                                val withdrawal = min(pension.balance, min(maxHarvest, remainingTarget))
-                                if (withdrawal > 0.0) {
-                                    val tfPart = withdrawal * (1.0 - taxableFraction)
-                                    val taxablePart = withdrawal * taxableFraction
-                                    
-                                    val taxBefore = calculateIncomeTax(taxableIncome2)
-                                    taxableIncome2 += taxablePart
-                                    val taxAfter = calculateIncomeTax(taxableIncome2)
-                                    val taxPaidForThisDraw = taxAfter - taxBefore
+                        val person2Pensions = dcPensions.filter { it.personId == "person-2" }
+                        for (pension in person2Pensions) {
+                            if (remainingTarget <= 0.0) break
+                            val allowance2 = max(0.0, PERSONAL_ALLOWANCE - taxableIncome2)
+                            if (allowance2 <= 0.0) break
 
-                                    taxFreeIncome += tfPart
-                                    pension.balance -= withdrawal
-                                    remainingTarget -= (tfPart + taxablePart)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, withdrawal, taxPaidForThisDraw))
-                                }
+                            val res = calculatePensionWithdrawal(
+                                potBalance = pension.balance,
+                                netNeeded = remainingTarget,
+                                currentTaxableIncome = taxableIncome2,
+                                remainingLSA = remainingTaxFreeLumpSum2,
+                                isUpFront = isUpFront,
+                                maxTaxableAmount = allowance2
+                            )
+                            if (res.grossWithdrawal > 0.0) {
+                                taxFreeIncome += res.taxFreeAmount
+                                remainingTaxFreeLumpSum2 -= res.taxFreeAmount
+                                taxableIncome2 += res.taxableAmount
+                                pension.balance -= res.grossWithdrawal
+                                remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, res.grossWithdrawal, res.taxPaid))
                             }
                         }
                     }
 
-                    // Step 2: Draw from pensions up to the Basic Rate Threshold (taxable income up to £50,270)
+                    // Step 2: Draw from pensions up to the Basic Rate Threshold (£50,270 taxable income)
                     val basicRateLimit = PERSONAL_ALLOWANCE + BASIC_RATE_THRESHOLD
                     if (isRetired1 && age1 >= minPensionAge1 && remainingTarget > 0.0) {
-                        val remainingBasicRateAllowance = max(0.0, basicRateLimit - taxableIncome1)
-                        if (remainingBasicRateAllowance > 0.0) {
-                            val maxBasicRateDraw = remainingBasicRateAllowance / taxableFraction
-                            val person1Pensions = dcPensions.filter { it.personId != "person-2" }
-                            for (pension in person1Pensions) {
-                                if (remainingTarget <= 0.0) break
-                                val withdrawal = min(pension.balance, min(maxBasicRateDraw, remainingTarget / netFractionInBasicRate))
-                                if (withdrawal > 0.0) {
-                                    val tfPart = withdrawal * (1.0 - taxableFraction)
-                                    val taxablePart = withdrawal * taxableFraction
-                                    
-                                    val taxBefore = calculateIncomeTax(taxableIncome1)
-                                    taxableIncome1 += taxablePart
-                                    val taxAfter = calculateIncomeTax(taxableIncome1)
-                                    val taxPaidForThisDraw = taxAfter - taxBefore
+                        val person1Pensions = dcPensions.filter { it.personId != "person-2" }
+                        for (pension in person1Pensions) {
+                            if (remainingTarget <= 0.0) break
+                            val basicCap1 = max(0.0, basicRateLimit - taxableIncome1)
+                            if (basicCap1 <= 0.0) break
 
-                                    taxFreeIncome += tfPart
-                                    pension.balance -= withdrawal
-                                    remainingTarget -= (tfPart + taxablePart * 0.80)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, withdrawal, taxPaidForThisDraw))
-                                }
+                            val res = calculatePensionWithdrawal(
+                                potBalance = pension.balance,
+                                netNeeded = remainingTarget,
+                                currentTaxableIncome = taxableIncome1,
+                                remainingLSA = remainingTaxFreeLumpSum1,
+                                isUpFront = isUpFront,
+                                maxTaxableAmount = basicCap1
+                            )
+                            if (res.grossWithdrawal > 0.0) {
+                                taxFreeIncome += res.taxFreeAmount
+                                remainingTaxFreeLumpSum1 -= res.taxFreeAmount
+                                taxableIncome1 += res.taxableAmount
+                                pension.balance -= res.grossWithdrawal
+                                remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person1.name, res.grossWithdrawal, res.taxPaid))
                             }
                         }
                     }
 
                     if (isRetired2 && age2 >= minPensionAge2 && remainingTarget > 0.0) {
-                        val remainingBasicRateAllowance = max(0.0, basicRateLimit - taxableIncome2)
-                        if (remainingBasicRateAllowance > 0.0) {
-                            val maxBasicRateDraw = remainingBasicRateAllowance / taxableFraction
-                            val person2Pensions = dcPensions.filter { it.personId == "person-2" }
-                            for (pension in person2Pensions) {
-                                if (remainingTarget <= 0.0) break
-                                val withdrawal = min(pension.balance, min(maxBasicRateDraw, remainingTarget / netFractionInBasicRate))
-                                if (withdrawal > 0.0) {
-                                    val tfPart = withdrawal * (1.0 - taxableFraction)
-                                    val taxablePart = withdrawal * taxableFraction
-                                    
-                                    val taxBefore = calculateIncomeTax(taxableIncome2)
-                                    taxableIncome2 += taxablePart
-                                    val taxAfter = calculateIncomeTax(taxableIncome2)
-                                    val taxPaidForThisDraw = taxAfter - taxBefore
+                        val person2Pensions = dcPensions.filter { it.personId == "person-2" }
+                        for (pension in person2Pensions) {
+                            if (remainingTarget <= 0.0) break
+                            val basicCap2 = max(0.0, basicRateLimit - taxableIncome2)
+                            if (basicCap2 <= 0.0) break
 
-                                    taxFreeIncome += tfPart
-                                    pension.balance -= withdrawal
-                                    remainingTarget -= (tfPart + taxablePart * 0.80)
-                                    yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, withdrawal, taxPaidForThisDraw))
-                                }
+                            val res = calculatePensionWithdrawal(
+                                potBalance = pension.balance,
+                                netNeeded = remainingTarget,
+                                currentTaxableIncome = taxableIncome2,
+                                remainingLSA = remainingTaxFreeLumpSum2,
+                                isUpFront = isUpFront,
+                                maxTaxableAmount = basicCap2
+                            )
+                            if (res.grossWithdrawal > 0.0) {
+                                taxFreeIncome += res.taxFreeAmount
+                                remainingTaxFreeLumpSum2 -= res.taxFreeAmount
+                                taxableIncome2 += res.taxableAmount
+                                pension.balance -= res.grossWithdrawal
+                                remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", person2.name, res.grossWithdrawal, res.taxPaid))
                             }
                         }
                     }
 
-                    // Step 3: Draw from ISAs next (tax-free) to preserve higher rate bracket
-                    for (saving in savings.filter { it.type == AccountType.ISA }) {
+                    // Step 3: Draw from ISAs and Current accounts (tax-free)
+                    for (saving in savings.filter { it.type == AccountType.ISA || it.type == AccountType.CURRENT }) {
                         if (remainingTarget <= 0.0) break
                         val withdrawal = min(saving.balance, remainingTarget)
                         if (withdrawal > 0.0) {
@@ -560,57 +711,57 @@ object PensionCalculator {
                         }
                     }
 
-                    // Step 4: Draw from GIAs next (taxable savings)
-                    for (saving in savings.filter { it.type != AccountType.ISA }) {
+                    // Step 4: Draw from GIAs (taxable savings)
+                    for (saving in savings.filter { it.type == AccountType.GENERAL_INVESTMENT }) {
                         if (remainingTarget <= 0.0) break
-                        val withdrawal = min(saving.balance, remainingTarget)
+                        val isLisa = saving.personId == "person-2"
+                        val currentTaxable = if (isLisa) taxableIncome2 else taxableIncome1
+                        val (withdrawal, taxPaid) = calculateGiaWithdrawal(saving.balance, remainingTarget, currentTaxable)
                         if (withdrawal > 0.0) {
-                            val isLisa = saving.personId == "person-2"
-                            val taxBefore = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
                             if (isLisa) {
                                 taxableIncome2 += withdrawal
                             } else {
                                 taxableIncome1 += withdrawal
                             }
-                            val taxAfter = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
-                            val taxPaidForThisDraw = taxAfter - taxBefore
-                            
                             saving.balance -= withdrawal
-                            remainingTarget -= withdrawal
-                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
+                            val netReceived = withdrawal - taxPaid
+                            remainingTarget = max(0.0, remainingTarget - netReceived)
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaid))
                         }
                     }
 
                     // Step 5: Draw from pensions above Basic Rate threshold (Higher Rate / 40%)
-                    val netFractionInHigherRate = (1.0 - taxableFraction) + taxableFraction * 0.60
                     for (pension in dcPensions) {
                         if (remainingTarget <= 0.0) break
-                        if (pension.balance > 0.0) {
-                            val isLisa = pension.personId == "person-2"
-                            val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
-                            val ownerAge = if (isLisa) age2 else age1
-                            val minAge = if (isLisa) minPensionAge2 else minPensionAge1
-                            if (!isOwnerRetired || ownerAge < minAge) continue
+                        if (pension.balance <= 0.0) continue
+                        val isLisa = pension.personId == "person-2"
+                        val isOwnerRetired = if (isLisa) isRetired2 else isRetired1
+                        val ownerAge = if (isLisa) age2 else age1
+                        val minAge = if (isLisa) minPensionAge2 else minPensionAge1
+                        if (!isOwnerRetired || ownerAge < minAge) continue
 
-                            val withdrawal = min(pension.balance, remainingTarget / netFractionInHigherRate)
-                            if (withdrawal > 0.0) {
-                                val tfPart = withdrawal * (1.0 - taxableFraction)
-                                val taxablePart = withdrawal * taxableFraction
-                                
-                                val taxBefore = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
-                                if (isLisa) {
-                                    taxableIncome2 += taxablePart
-                                } else {
-                                    taxableIncome1 += taxablePart
-                                }
-                                val taxAfter = if (isLisa) calculateIncomeTax(taxableIncome2) else calculateIncomeTax(taxableIncome1)
-                                val taxPaidForThisDraw = taxAfter - taxBefore
+                        val currentTaxable = if (isLisa) taxableIncome2 else taxableIncome1
+                        val currentLSA = if (isLisa) remainingTaxFreeLumpSum2 else remainingTaxFreeLumpSum1
 
-                                taxFreeIncome += tfPart
-                                pension.balance -= withdrawal
-                                remainingTarget -= (tfPart + taxablePart * 0.60)
-                                yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaidForThisDraw))
+                        val res = calculatePensionWithdrawal(
+                            potBalance = pension.balance,
+                            netNeeded = remainingTarget,
+                            currentTaxableIncome = currentTaxable,
+                            remainingLSA = currentLSA,
+                            isUpFront = isUpFront
+                        )
+                        if (res.grossWithdrawal > 0.0) {
+                            taxFreeIncome += res.taxFreeAmount
+                            if (isLisa) {
+                                remainingTaxFreeLumpSum2 -= res.taxFreeAmount
+                                taxableIncome2 += res.taxableAmount
+                            } else {
+                                remainingTaxFreeLumpSum1 -= res.taxFreeAmount
+                                taxableIncome1 += res.taxableAmount
                             }
+                            pension.balance -= res.grossWithdrawal
+                            remainingTarget = max(0.0, remainingTarget - res.netReceived)
+                            yearWithdrawals.add(WithdrawalDetail("${pension.institution.displayName} - ${pension.name}", if (isLisa) person2.name else person1.name, res.grossWithdrawal, res.taxPaid))
                         }
                     }
                 }
@@ -618,11 +769,31 @@ object PensionCalculator {
                 val tax1 = calculateIncomeTax(taxableIncome1)
                 val tax2 = calculateIncomeTax(taxableIncome2)
                 val netIncome = taxFreeIncome + (taxableIncome1 - tax1) + (taxableIncome2 - tax2)
+
+                // 3. Investment returns on remaining balances at end of year
+                // Applying returns on balance remaining after withdrawals ensures we never overestimate
+                // returns on money already spent to live on during the year.
+                dcPensions.forEach { pension ->
+                    val netGrowthRate = max(0.0, portfolioGrowthRate - (pension.annualManagementCharge / 100.0))
+                    pension.balance *= (1.0 + netGrowthRate)
+                }
+
+                savings.forEach { saving ->
+                    val rate = if (saving.type == AccountType.ISA || saving.type == AccountType.GENERAL_INVESTMENT) {
+                        if (saving.interestRate > 0.0) saving.interestRate / 100.0 else portfolioGrowthRate
+                    } else {
+                        saving.interestRate / 100.0
+                    }
+                    saving.balance *= (1.0 + rate)
+                }
+
                 val totalPensionVal = dcPensions.sumOf { it.balance }
                 val totalSavingsVal = savings.sumOf { it.balance }
 
-                val metTarget = netIncome >= targetIncome || (totalPensionVal + totalSavingsVal > 0.0 && netIncome >= targetIncome * 0.85)
-                if (!metTarget && ageActive < 90) {
+                // Realistic feasibility: user must genuinely meet target income (within £1 tolerance for rounding).
+                // No artificial 15% shortfall masking or ignoring shortfalls past age 90.
+                val metTarget = netIncome >= (targetIncome - 1.0)
+                if (isRetiredActive && !metTarget) {
                     retirementFeasible = false
                 }
 
@@ -645,6 +816,21 @@ object PensionCalculator {
                     )
                 )
             } else {
+                // Accumulation phase: apply growth to pots
+                dcPensions.forEach { pension ->
+                    val netGrowthRate = max(0.0, portfolioGrowthRate - (pension.annualManagementCharge / 100.0))
+                    pension.balance *= (1.0 + netGrowthRate)
+                }
+
+                savings.forEach { saving ->
+                    val rate = if (saving.type == AccountType.ISA || saving.type == AccountType.GENERAL_INVESTMENT) {
+                        if (saving.interestRate > 0.0) saving.interestRate / 100.0 else portfolioGrowthRate
+                    } else {
+                        saving.interestRate / 100.0
+                    }
+                    saving.balance *= (1.0 + rate)
+                }
+
                 val totalPensionVal = dcPensions.sumOf { it.balance }
                 val totalSavingsVal = savings.sumOf { it.balance }
                 results.add(

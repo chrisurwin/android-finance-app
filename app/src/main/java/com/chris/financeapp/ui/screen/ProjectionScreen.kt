@@ -287,6 +287,11 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                             }
                         }
                     )
+                    Text(
+                        text = "Subject to UK Lump Sum Allowance: Max £268,275 tax-free per person",
+                        fontSize = 11.sp,
+                        color = TextSecondary.copy(alpha = 0.8f)
+                    )
                 }
             }
         }
@@ -370,15 +375,17 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                     )
                 }
                 
-                // Determine depletion age
+                // Determine depletion / shortfall age
                 val retirementAgeActive = when (projectionType) {
                     ProjectionType.INDIVIDUAL_CHRIS -> retirementAge1
                     ProjectionType.INDIVIDUAL_LISA -> retirementAge2
                     ProjectionType.COUPLE -> retirementAge1
                 }
-                val depletionResult = projection.results.firstOrNull { it.age >= retirementAgeActive && (it.totalPensionValue + it.totalSavings) <= 0.0 }
-                val summaryText = if (depletionResult != null) {
-                    "Depleted at age ${depletionResult.age}"
+                val firstShortfall = projection.results.firstOrNull { it.age >= retirementAgeActive && (!it.canRetire || (it.totalPensionValue + it.totalSavings) <= 0.0) }
+                val summaryText = if (firstShortfall != null && !projection.feasible) {
+                    "Shortfall at age ${firstShortfall.age}"
+                } else if (!projection.feasible) {
+                    "Depletion risk before age 95"
                 } else {
                     "Funds last past age 95"
                 }
