@@ -22,6 +22,9 @@ object PensionCalculator {
     // The maximum tax-free lump sum that can be taken across pensions is capped at £268,275 per individual.
     const val MAX_TAX_FREE_LUMP_SUM = 268275.0
 
+    // UK Annual ISA Subscription Allowance (per individual)
+    const val ANNUAL_ISA_ALLOWANCE = 20000.0
+
     private const val FULL_STATE_PENSION_WEEKLY = 230.25
     private const val FULL_STATE_PENSION_ANNUAL = FULL_STATE_PENSION_WEEKLY * 52.0
 
@@ -199,6 +202,120 @@ object PensionCalculator {
         return Pair(high, max(0.0, taxAfter - taxBefore))
     }
 
+    /**
+     * Calculates UK Tax on Savings Interest from General Investment Accounts (GIA).
+     * Accounts for the Personal Allowance, Personal Savings Allowance (£1,000 basic / £500 higher / £0 additional),
+     * and taxes non-exempt savings returns at the individual's marginal income tax rate.
+     */
+    fun calculateTaxOnSavings(savingsInterest: Double, otherTaxableIncome: Double): Double {
+        if (savingsInterest <= 0.0) return 0.0
+
+        val personalAllowance = max(0.0, PERSONAL_ALLOWANCE - max(0.0, (otherTaxableIncome + savingsInterest) - 100000.0) / 2.0)
+        val unusedPA = max(0.0, personalAllowance - otherTaxableIncome)
+
+        val totalIncome = otherTaxableIncome + savingsInterest
+        val psa = when {
+            totalIncome <= (PERSONAL_ALLOWANCE + BASIC_RATE_THRESHOLD) -> 1000.0
+            totalIncome <= HIGHER_RATE_THRESHOLD -> 500.0
+            else -> 0.0
+        }
+
+        val taxableSavings = max(0.0, savingsInterest - unusedPA - psa)
+        if (taxableSavings <= 0.0) return 0.0
+
+        val taxBefore = calculateIncomeTax(otherTaxableIncome + unusedPA)
+        val taxAfter = calculateIncomeTax(otherTaxableIncome + unusedPA + taxableSavings)
+        return max(0.0, taxAfter - taxBefore)
+    }
+
+    /**
+     * Executes annual "Bed and ISA" transfer from taxable General Investment Accounts (GIA) to tax-free ISAs.
+     * Moves up to £20,000 per person per year (split between the couple up to £40,000 total if a couple),
+     * sheltering funds from tax on savings.
+     */
+    private fun performBedAndIsaTransfer(
+        savings: MutableList<Account>,
+        projectionType: ProjectionType,
+        person1: Person,
+        person2: Person,
+        isRetired1: Boolean,
+        isRetired2: Boolean,
+        assumptions: InvestmentAssumptions,
+        inflationFactor: Double
+    ) {
+        val totalGia = savings.filter { it.type == AccountType.GENERAL_INVESTMENT && it.balance > 0.0 }.sumOf { it.balance }
+        if (totalGia <= 0.0) return
+
+        val usedIsa1 = savings.filter { it.personId != "person-2" && it.type == AccountType.ISA }
+            .sumOf { if (!isRetired1) it.monthlyContribution * 12.0 * inflationFactor else 0.0 }
+        val maxIsa1 = if (projectionType == ProjectionType.INDIVIDUAL_LISA) 0.0 else max(0.0, ANNUAL_ISA_ALLOWANCE - usedIsa1)
+
+        val usedIsa2 = savings.filter { it.personId == "person-2" && it.type == AccountType.ISA }
+            .sumOf { if (!isRetired2) it.monthlyContribution * 12.0 * inflationFactor else 0.0 }
+        val maxIsa2 = if (projectionType == ProjectionType.INDIVIDUAL_CHRIS) 0.0 else max(0.0, ANNUAL_ISA_ALLOWANCE - usedIsa2)
+
+        val maxTransferTotal = maxIsa1 + maxIsa2
+        val actualTransferTotal = min(totalGia, maxTransferTotal)
+        if (actualTransferTotal <= 0.0) return
+
+        val (t1, t2) = if (projectionType == ProjectionType.COUPLE) {
+            if (actualTransferTotal >= (maxIsa1 + maxIsa2)) {
+                Pair(maxIsa1, maxIsa2)
+            } else {
+                val half = actualTransferTotal / 2.0
+                val p1 = min(maxIsa1, half)
+                val p2 = min(maxIsa2, actualTransferTotal - p1)
+                Pair(p1, p2)
+            }
+        } else if (projectionType == ProjectionType.INDIVIDUAL_CHRIS) {
+            Pair(actualTransferTotal, 0.0)
+        } else {
+            Pair(0.0, actualTransferTotal)
+        }
+
+        var remDeduct = actualTransferTotal
+        for (gia in savings.filter { it.type == AccountType.GENERAL_INVESTMENT }) {
+            if (remDeduct <= 0.0) break
+            val d = min(gia.balance, remDeduct)
+            gia.balance -= d
+            remDeduct -= d
+        }
+
+        if (t1 > 0.0) {
+            val isa1 = savings.firstOrNull { it.personId != "person-2" && it.type == AccountType.ISA }
+            if (isa1 != null) {
+                isa1.balance += t1
+            } else {
+                savings.add(Account(
+                    id = "isa-bed-1",
+                    name = "${person1.name}'s ISA",
+                    type = AccountType.ISA,
+                    institution = Institution.HOSTED,
+                    balance = t1,
+                    personId = "person-1",
+                    interestRate = assumptions.cashReturn * 100
+                ))
+            }
+        }
+
+        if (t2 > 0.0) {
+            val isa2 = savings.firstOrNull { it.personId == "person-2" && it.type == AccountType.ISA }
+            if (isa2 != null) {
+                isa2.balance += t2
+            } else {
+                savings.add(Account(
+                    id = "isa-bed-2",
+                    name = "${person2.name}'s ISA",
+                    type = AccountType.ISA,
+                    institution = Institution.HOSTED,
+                    balance = t2,
+                    personId = "person-2",
+                    interestRate = assumptions.cashReturn * 100
+                ))
+            }
+        }
+    }
+
     fun calculateProjections(
         accounts: List<Account>,
         assumptions: InvestmentAssumptions,
@@ -338,6 +455,8 @@ object PensionCalculator {
             // 2. Upfront Lump Sum Option logic:
             // Extract 25% of DC pensions capped at available Lump Sum Allowance (£268,275 per person)
             // Can ONLY be taken at or after reaching minimum pension age (55/57)
+            // Lump sum is deposited into a General Investment Account (GIA), where it is subject to tax on savings,
+            // but can be split between the couple (up to £20k each per year) into an ISA to remove it from tax.
             if (preferences.lumpSumOption == LumpSumOption.UP_FRONT) {
                 if (isRetired1 && age1 >= minPensionAge1 && !hasTakenLumpSum1) {
                     var totalLumpSum1 = 0.0
@@ -359,15 +478,15 @@ object PensionCalculator {
                     }.toMutableList()
                     
                     if (totalLumpSum1 > 0.0) {
-                        val isaIndex = savings.indexOfFirst { it.personId != "person-2" && it.type == AccountType.ISA }
-                        if (isaIndex >= 0) {
-                            savings[isaIndex].balance += totalLumpSum1
+                        val giaIndex = savings.indexOfFirst { it.personId != "person-2" && it.type == AccountType.GENERAL_INVESTMENT }
+                        if (giaIndex >= 0) {
+                            savings[giaIndex].balance += totalLumpSum1
                         } else {
-                            val saveIndex = savings.indexOfFirst { it.personId != "person-2" }
+                            val saveIndex = savings.indexOfFirst { it.personId != "person-2" && it.type != AccountType.ISA }
                             if (saveIndex >= 0) {
                                 savings[saveIndex].balance += totalLumpSum1
                             } else {
-                                savings.add(Account(id = "lump-sum-isa-1", name = "Tax-Free Lump Sum", type = AccountType.ISA, institution = Institution.HOSTED, balance = totalLumpSum1, personId = "person-1", interestRate = assumptions.cashReturn * 100))
+                                savings.add(Account(id = "lump-sum-gia-1", name = "Tax-Free Lump Sum (GIA)", type = AccountType.GENERAL_INVESTMENT, institution = Institution.HOSTED, balance = totalLumpSum1, personId = "person-1", interestRate = assumptions.cashReturn * 100))
                             }
                         }
                     }
@@ -393,21 +512,34 @@ object PensionCalculator {
                     }.toMutableList()
                     
                     if (totalLumpSum2 > 0.0) {
-                        val isaIndex = savings.indexOfFirst { it.personId == "person-2" && it.type == AccountType.ISA }
-                        if (isaIndex >= 0) {
-                            savings[isaIndex].balance += totalLumpSum2
+                        val giaIndex = savings.indexOfFirst { it.personId == "person-2" && it.type == AccountType.GENERAL_INVESTMENT }
+                        if (giaIndex >= 0) {
+                            savings[giaIndex].balance += totalLumpSum2
                         } else {
-                            val saveIndex = savings.indexOfFirst { it.personId == "person-2" }
+                            val saveIndex = savings.indexOfFirst { it.personId == "person-2" && it.type != AccountType.ISA }
                             if (saveIndex >= 0) {
                                 savings[saveIndex].balance += totalLumpSum2
                             } else {
-                                savings.add(Account(id = "lump-sum-isa-2", name = "Tax-Free Lump Sum", type = AccountType.ISA, institution = Institution.HOSTED, balance = totalLumpSum2, personId = "person-2", interestRate = assumptions.cashReturn * 100))
+                                savings.add(Account(id = "lump-sum-gia-2", name = "Tax-Free Lump Sum (GIA)", type = AccountType.GENERAL_INVESTMENT, institution = Institution.HOSTED, balance = totalLumpSum2, personId = "person-2", interestRate = assumptions.cashReturn * 100))
                             }
                         }
                     }
                     hasTakenLumpSum2 = true
                 }
             }
+
+            // 3. Annual Bed & ISA Transfer:
+            // Move up to £20k per person per year (split between the couple if couple) from GIA to ISA to remove from tax
+            performBedAndIsaTransfer(
+                savings = savings,
+                projectionType = projectionType,
+                person1 = person1,
+                person2 = person2,
+                isRetired1 = isRetired1,
+                isRetired2 = isRetired2,
+                assumptions = assumptions,
+                inflationFactor = inflationFactor
+            )
 
             if (anyRetired) {
                 // Calculate State Pension (from statutory state pension age)
@@ -521,8 +653,19 @@ object PensionCalculator {
                         }
                     }
 
-                    // Step 2: Draw from tax-free savings (ISAs and Current accounts)
-                    for (saving in savings.filter { it.type == AccountType.ISA || it.type == AccountType.CURRENT }) {
+                    // Step 2: Draw from other savings (Current accounts, then GIAs) BEFORE ISAs due to ISA tax-free nature
+                    for (saving in savings.filter { it.type == AccountType.CURRENT }) {
+                        if (remainingTarget <= 0.0) break
+                        val withdrawal = min(saving.balance, remainingTarget)
+                        if (withdrawal > 0.0) {
+                            taxFreeIncome += withdrawal
+                            saving.balance -= withdrawal
+                            remainingTarget -= withdrawal
+                            val owner = if (saving.personId == "person-2") person2.name else person1.name
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", owner, withdrawal, 0.0))
+                        }
+                    }
+                    for (saving in savings.filter { it.type == AccountType.GENERAL_INVESTMENT }) {
                         if (remainingTarget <= 0.0) break
                         val withdrawal = min(saving.balance, remainingTarget)
                         if (withdrawal > 0.0) {
@@ -534,22 +677,16 @@ object PensionCalculator {
                         }
                     }
 
-                    // Step 3: Draw from GIA (taxable savings)
-                    for (saving in savings.filter { it.type == AccountType.GENERAL_INVESTMENT }) {
+                    // Step 3: Draw from ISAs (tax-free savings preserved until other savings are exhausted)
+                    for (saving in savings.filter { it.type == AccountType.ISA }) {
                         if (remainingTarget <= 0.0) break
-                        val isLisa = saving.personId == "person-2"
-                        val currentTaxable = if (isLisa) taxableIncome2 else taxableIncome1
-                        val (withdrawal, taxPaid) = calculateGiaWithdrawal(saving.balance, remainingTarget, currentTaxable)
+                        val withdrawal = min(saving.balance, remainingTarget)
                         if (withdrawal > 0.0) {
-                            if (isLisa) {
-                                taxableIncome2 += withdrawal
-                            } else {
-                                taxableIncome1 += withdrawal
-                            }
+                            taxFreeIncome += withdrawal
                             saving.balance -= withdrawal
-                            val netReceived = withdrawal - taxPaid
-                            remainingTarget = max(0.0, remainingTarget - netReceived)
-                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaid))
+                            remainingTarget -= withdrawal
+                            val owner = if (saving.personId == "person-2") person2.name else person1.name
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", owner, withdrawal, 0.0))
                         }
                     }
 
@@ -698,8 +835,19 @@ object PensionCalculator {
                         }
                     }
 
-                    // Step 3: Draw from ISAs and Current accounts (tax-free)
-                    for (saving in savings.filter { it.type == AccountType.ISA || it.type == AccountType.CURRENT }) {
+                    // Step 3: Draw from other savings (Current accounts, then GIAs) BEFORE ISAs due to ISA tax-free nature
+                    for (saving in savings.filter { it.type == AccountType.CURRENT }) {
+                        if (remainingTarget <= 0.0) break
+                        val withdrawal = min(saving.balance, remainingTarget)
+                        if (withdrawal > 0.0) {
+                            taxFreeIncome += withdrawal
+                            saving.balance -= withdrawal
+                            remainingTarget -= withdrawal
+                            val owner = if (saving.personId == "person-2") person2.name else person1.name
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", owner, withdrawal, 0.0))
+                        }
+                    }
+                    for (saving in savings.filter { it.type == AccountType.GENERAL_INVESTMENT }) {
                         if (remainingTarget <= 0.0) break
                         val withdrawal = min(saving.balance, remainingTarget)
                         if (withdrawal > 0.0) {
@@ -711,22 +859,16 @@ object PensionCalculator {
                         }
                     }
 
-                    // Step 4: Draw from GIAs (taxable savings)
-                    for (saving in savings.filter { it.type == AccountType.GENERAL_INVESTMENT }) {
+                    // Step 4: Draw from ISAs (tax-free savings preserved until other savings are exhausted)
+                    for (saving in savings.filter { it.type == AccountType.ISA }) {
                         if (remainingTarget <= 0.0) break
-                        val isLisa = saving.personId == "person-2"
-                        val currentTaxable = if (isLisa) taxableIncome2 else taxableIncome1
-                        val (withdrawal, taxPaid) = calculateGiaWithdrawal(saving.balance, remainingTarget, currentTaxable)
+                        val withdrawal = min(saving.balance, remainingTarget)
                         if (withdrawal > 0.0) {
-                            if (isLisa) {
-                                taxableIncome2 += withdrawal
-                            } else {
-                                taxableIncome1 += withdrawal
-                            }
+                            taxFreeIncome += withdrawal
                             saving.balance -= withdrawal
-                            val netReceived = withdrawal - taxPaid
-                            remainingTarget = max(0.0, remainingTarget - netReceived)
-                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", if (isLisa) person2.name else person1.name, withdrawal, taxPaid))
+                            remainingTarget -= withdrawal
+                            val owner = if (saving.personId == "person-2") person2.name else person1.name
+                            yearWithdrawals.add(WithdrawalDetail("${saving.institution.displayName} - ${saving.name}", owner, withdrawal, 0.0))
                         }
                     }
 
@@ -766,39 +908,66 @@ object PensionCalculator {
                     }
                 }
 
-                val tax1 = calculateIncomeTax(taxableIncome1)
-                val tax2 = calculateIncomeTax(taxableIncome2)
-                val netIncome = taxFreeIncome + (taxableIncome1 - tax1) + (taxableIncome2 - tax2)
+                val incomeTax1 = calculateIncomeTax(taxableIncome1)
+                val incomeTax2 = calculateIncomeTax(taxableIncome2)
 
-                // 3. Investment returns on remaining balances at end of year
-                // Applying returns on balance remaining after withdrawals ensures we never overestimate
-                // returns on money already spent to live on during the year.
+                // 3. Investment returns and Tax on Savings
+                // DC pensions grow tax-free inside pension wrapper
                 dcPensions.forEach { pension ->
                     val netGrowthRate = max(0.0, portfolioGrowthRate - (pension.annualManagementCharge / 100.0))
                     pension.balance *= (1.0 + netGrowthRate)
                 }
 
+                // Calculate savings interest / returns in General Investment Accounts (GIA)
+                val giaReturn1 = savings.filter { it.personId != "person-2" && it.type == AccountType.GENERAL_INVESTMENT }
+                    .sumOf { it.balance * (if (it.interestRate > 0.0) it.interestRate / 100.0 else portfolioGrowthRate) }
+                val giaReturn2 = savings.filter { it.personId == "person-2" && it.type == AccountType.GENERAL_INVESTMENT }
+                    .sumOf { it.balance * (if (it.interestRate > 0.0) it.interestRate / 100.0 else portfolioGrowthRate) }
+
+                val savingsTax1 = calculateTaxOnSavings(giaReturn1, taxableIncome1)
+                val savingsTax2 = calculateTaxOnSavings(giaReturn2, taxableIncome2)
+
+                if (savingsTax1 > 0.0) {
+                    yearWithdrawals.add(WithdrawalDetail("GIA Savings Tax", person1.name, giaReturn1, savingsTax1))
+                }
+                if (savingsTax2 > 0.0) {
+                    yearWithdrawals.add(WithdrawalDetail("GIA Savings Tax", person2.name, giaReturn2, savingsTax2))
+                }
+
+                // Apply growth to savings accounts (ISAs and Current accounts grow tax-free; GIA is net of savings tax)
                 savings.forEach { saving ->
                     val rate = if (saving.type == AccountType.ISA || saving.type == AccountType.GENERAL_INVESTMENT) {
                         if (saving.interestRate > 0.0) saving.interestRate / 100.0 else portfolioGrowthRate
                     } else {
                         saving.interestRate / 100.0
                     }
-                    saving.balance *= (1.0 + rate)
+                    if (saving.type == AccountType.GENERAL_INVESTMENT) {
+                        val isLisa = saving.personId == "person-2"
+                        val totalReturn = if (isLisa) giaReturn2 else giaReturn1
+                        val totalTax = if (isLisa) savingsTax2 else savingsTax1
+                        val returnAmount = saving.balance * rate
+                        val taxForThis = if (totalReturn > 0.0) totalTax * (returnAmount / totalReturn) else 0.0
+                        saving.balance += max(0.0, returnAmount - taxForThis)
+                    } else {
+                        saving.balance *= (1.0 + rate)
+                    }
                 }
 
                 val totalPensionVal = dcPensions.sumOf { it.balance }
                 val totalSavingsVal = savings.sumOf { it.balance }
 
+                val tax1 = incomeTax1 + savingsTax1
+                val tax2 = incomeTax2 + savingsTax2
+                val currentTax = tax1 + tax2
+                totalTaxPaid += currentTax
+
+                val netIncome = taxFreeIncome + (taxableIncome1 - incomeTax1) + (taxableIncome2 - incomeTax2)
+
                 // Realistic feasibility: user must genuinely meet target income (within £1 tolerance for rounding).
-                // No artificial 15% shortfall masking or ignoring shortfalls past age 90.
                 val metTarget = netIncome >= (targetIncome - 1.0)
                 if (isRetiredActive && !metTarget) {
                     retirementFeasible = false
                 }
-
-                val currentTax = tax1 + tax2
-                totalTaxPaid += currentTax
 
                 results.add(
                     ProjectionResult(
@@ -816,11 +985,32 @@ object PensionCalculator {
                     )
                 )
             } else {
-                // Accumulation phase: apply growth to pots
+                // Accumulation phase: apply growth to pots and annual Bed & ISA
+                performBedAndIsaTransfer(
+                    savings = savings,
+                    projectionType = projectionType,
+                    person1 = person1,
+                    person2 = person2,
+                    isRetired1 = false,
+                    isRetired2 = false,
+                    assumptions = assumptions,
+                    inflationFactor = inflationFactor
+                )
+
                 dcPensions.forEach { pension ->
                     val netGrowthRate = max(0.0, portfolioGrowthRate - (pension.annualManagementCharge / 100.0))
                     pension.balance *= (1.0 + netGrowthRate)
                 }
+
+                val giaReturn1 = savings.filter { it.personId != "person-2" && it.type == AccountType.GENERAL_INVESTMENT }
+                    .sumOf { it.balance * (if (it.interestRate > 0.0) it.interestRate / 100.0 else portfolioGrowthRate) }
+                val giaReturn2 = savings.filter { it.personId == "person-2" && it.type == AccountType.GENERAL_INVESTMENT }
+                    .sumOf { it.balance * (if (it.interestRate > 0.0) it.interestRate / 100.0 else portfolioGrowthRate) }
+
+                val savingsTax1 = calculateTaxOnSavings(giaReturn1, 0.0)
+                val savingsTax2 = calculateTaxOnSavings(giaReturn2, 0.0)
+                val currentTax = savingsTax1 + savingsTax2
+                totalTaxPaid += currentTax
 
                 savings.forEach { saving ->
                     val rate = if (saving.type == AccountType.ISA || saving.type == AccountType.GENERAL_INVESTMENT) {
@@ -828,7 +1018,16 @@ object PensionCalculator {
                     } else {
                         saving.interestRate / 100.0
                     }
-                    saving.balance *= (1.0 + rate)
+                    if (saving.type == AccountType.GENERAL_INVESTMENT) {
+                        val isLisa = saving.personId == "person-2"
+                        val totalReturn = if (isLisa) giaReturn2 else giaReturn1
+                        val totalTax = if (isLisa) savingsTax2 else savingsTax1
+                        val returnAmount = saving.balance * rate
+                        val taxForThis = if (totalReturn > 0.0) totalTax * (returnAmount / totalReturn) else 0.0
+                        saving.balance += max(0.0, returnAmount - taxForThis)
+                    } else {
+                        saving.balance *= (1.0 + rate)
+                    }
                 }
 
                 val totalPensionVal = dcPensions.sumOf { it.balance }
@@ -841,9 +1040,9 @@ object PensionCalculator {
                         totalSavings = totalSavingsVal,
                         annualIncome = 0.0,
                         netIncome = 0.0,
-                        tax = 0.0,
-                        tax1 = 0.0,
-                        tax2 = 0.0,
+                        tax = currentTax,
+                        tax1 = savingsTax1,
+                        tax2 = savingsTax2,
                         canRetire = false,
                         withdrawals = emptyList()
                     )

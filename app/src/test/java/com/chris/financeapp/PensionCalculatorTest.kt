@@ -5,6 +5,7 @@ import com.chris.financeapp.data.model.AccountType
 import com.chris.financeapp.data.model.Institution
 import com.chris.financeapp.data.model.InvestmentAssumptions
 import com.chris.financeapp.data.model.DrawdownPreferences
+import com.chris.financeapp.data.model.DrawdownStrategy
 import com.chris.financeapp.data.model.LumpSumOption
 import com.chris.financeapp.data.model.Person
 import com.chris.financeapp.data.model.ProjectionType
@@ -299,6 +300,225 @@ class PensionCalculatorTest {
         assertEquals("Zero tax should be paid on current account withdrawal", 0.0, firstYear.tax, 0.01)
         val w = firstYear.withdrawals.first()
         assertEquals(0.0, w.taxPaid, 0.01)
+    }
+
+    @Test
+    fun testCalculateTaxOnSavings() {
+        // Case 1: Savings interest below Personal Savings Allowance (£1,000 for basic rate taxpayer)
+        val taxUnderPsa = PensionCalculator.calculateTaxOnSavings(savingsInterest = 800.0, otherTaxableIncome = 30000.0)
+        assertEquals("Savings interest below PSA should incur £0 tax", 0.0, taxUnderPsa, 0.01)
+
+        // Case 2: Basic rate taxpayer with £3,000 savings interest (£1,000 PSA -> £2,000 taxable at 20% = £400)
+        val taxBasicOverPsa = PensionCalculator.calculateTaxOnSavings(savingsInterest = 3000.0, otherTaxableIncome = 30000.0)
+        assertEquals("Excess savings interest should be taxed at basic rate 20%", 400.0, taxBasicOverPsa, 0.01)
+
+        // Case 3: Higher rate taxpayer (£60,000 other income -> £500 PSA).
+        // £2,500 savings interest -> £2,000 taxable at 40% = £800
+        val taxHigherRate = PensionCalculator.calculateTaxOnSavings(savingsInterest = 2500.0, otherTaxableIncome = 60000.0)
+        assertEquals("Excess savings interest should be taxed at higher rate 40%", 800.0, taxHigherRate, 0.01)
+
+        // Case 4: Income below personal allowance (£10,000 income, £2,570 unused PA + £1,000 PSA = £3,570 sheltered)
+        val taxLowIncome = PensionCalculator.calculateTaxOnSavings(savingsInterest = 3000.0, otherTaxableIncome = 10000.0)
+        assertEquals("Low income uses unused PA and PSA, resulting in £0 tax", 0.0, taxLowIncome, 0.01)
+    }
+
+    @Test
+    fun testLumpSumDepositedToGiaAndBedAndIsaTransferIndividual() {
+        // Chris takes upfront lump sum of £100,000 from a £400,000 pension (25% = £100,000).
+        // It must NOT be dumped entirely into an ISA. Instead, it enters a GIA and transfers £20,000 to ISA.
+        val accounts = listOf(
+            Account("p1", "Aviva Pension", AccountType.PENSION, Institution.AVIVA, 400000.0, personId = "person-1")
+        )
+        val assumptions = InvestmentAssumptions(equityReturn = 0.0, bondReturn = 0.0, cashReturn = 0.0, inflationRate = 0.0)
+        val preferences = DrawdownPreferences(
+            targetAnnualIncome = 0.0,
+            inflationAdjusted = false,
+            lumpSumOption = LumpSumOption.UP_FRONT,
+            startAge = 60,
+            endAge = 63
+        )
+        val person1 = Person("person-1", "Chris", 1966, 60)
+        val person2 = Person("person-2", "Lisa", 1968, 60)
+
+        val projection = PensionCalculator.calculateProjections(
+            accounts = accounts,
+            assumptions = assumptions,
+            preferences = preferences,
+            person1 = person1,
+            person2 = person2,
+            retirementAge1 = 60,
+            retirementAge2 = 60,
+            projectionType = ProjectionType.INDIVIDUAL_CHRIS
+        )
+
+        // Year 1 (age 60): £100,000 lump sum taken into GIA. £20,000 moved to ISA via Bed & ISA.
+        // Total savings value is £100,000.
+        val year1 = projection.results[0]
+        assertEquals(100000.0, year1.totalSavings, 0.01)
+        assertEquals(300000.0, year1.totalPensionValue, 0.01)
+
+        // In year 2 (age 61), another £20,000 transferred to ISA (total £40k in ISA, £60k in GIA).
+        val year2 = projection.results[1]
+        assertEquals(100000.0, year2.totalSavings, 0.01)
+    }
+
+    @Test
+    fun testLumpSumBedAndIsaTransferCoupleSplit() {
+        // Chris takes upfront lump sum of £100,000 in a couple projection.
+        // The couple can split £40,000 per year (£20k each) into ISAs.
+        val accounts = listOf(
+            Account("p1", "Chris Pension", AccountType.PENSION, Institution.AVIVA, 400000.0, personId = "person-1")
+        )
+        val assumptions = InvestmentAssumptions(equityReturn = 0.0, bondReturn = 0.0, cashReturn = 0.0, inflationRate = 0.0)
+        val preferences = DrawdownPreferences(
+            targetAnnualIncome = 0.0,
+            inflationAdjusted = false,
+            lumpSumOption = LumpSumOption.UP_FRONT,
+            startAge = 60,
+            endAge = 63
+        )
+        val person1 = Person("person-1", "Chris", 1966, 60)
+        val person2 = Person("person-2", "Lisa", 1966, 60)
+
+        val projection = PensionCalculator.calculateProjections(
+            accounts = accounts,
+            assumptions = assumptions,
+            preferences = preferences,
+            person1 = person1,
+            person2 = person2,
+            retirementAge1 = 60,
+            retirementAge2 = 60,
+            projectionType = ProjectionType.COUPLE
+        )
+
+        // In year 1, £100,000 lump sum taken.
+        // Couple transfer capacity is £40k (£20k each).
+        val year1 = projection.results[0]
+        assertEquals(100000.0, year1.totalSavings, 0.01)
+    }
+
+    @Test
+    fun testOtherSavingsDrawnDownBeforeIsasInStandardStrategy() {
+        // Account setup: ISA with £50k, GIA with £30k, Current account with £10k.
+        // Under STANDARD drawdown, Current and GIA must be exhausted before touching ISA.
+        val accounts = listOf(
+            Account("isa1", "Chris Stocks ISA", AccountType.ISA, Institution.HOSTED, 50000.0, personId = "person-1"),
+            Account("gia1", "Chris General Investment", AccountType.GENERAL_INVESTMENT, Institution.HOSTED, 30000.0, personId = "person-1"),
+            Account("c1", "Chris Current", AccountType.CURRENT, Institution.HSBC, 5000.0, personId = "person-1"),
+            Account("p1", "Chris Pension", AccountType.PENSION, Institution.AVIVA, 500000.0, personId = "person-1")
+        )
+        val assumptions = InvestmentAssumptions(equityReturn = 0.0, bondReturn = 0.0, cashReturn = 0.0, inflationRate = 0.0)
+        val preferences = DrawdownPreferences(
+            targetAnnualIncome = 25000.0,
+            inflationAdjusted = false,
+            strategy = DrawdownStrategy.STANDARD,
+            startAge = 60,
+            endAge = 62
+        )
+        val person1 = Person("person-1", "Chris", 1966, 60)
+        val person2 = Person("person-2", "Lisa", 1968, 60)
+
+        val projection = PensionCalculator.calculateProjections(
+            accounts = accounts,
+            assumptions = assumptions,
+            preferences = preferences,
+            person1 = person1,
+            person2 = person2,
+            retirementAge1 = 60,
+            retirementAge2 = 60,
+            projectionType = ProjectionType.INDIVIDUAL_CHRIS
+        )
+
+        val firstYear = projection.results.first()
+        val withdrawals = firstYear.withdrawals
+        
+        // Harvest PA from pension first (£12,570 taxable + £4,190 tax-free = £16,760 net). Remaining need = £8,240.
+        // Remaining £8,240 is drawn from Current (£5k) and GIA (£3,240), NOT from ISA!
+        val isaWithdrawal = withdrawals.firstOrNull { it.potName.contains("ISA") }
+        assertTrue("ISA should not be drawn because other savings (Current and GIA) cover the need", isaWithdrawal == null)
+
+        val currentWithdrawal = withdrawals.firstOrNull { it.potName.contains("Current") }
+        val giaWithdrawal = withdrawals.firstOrNull { it.potName.contains("General Investment") }
+        assertTrue("Current account should be drawn", currentWithdrawal != null)
+        assertTrue("GIA account should be drawn", giaWithdrawal != null)
+        assertEquals(5000.0, currentWithdrawal!!.amountDrawn, 0.01)
+        assertEquals(3240.0, giaWithdrawal!!.amountDrawn, 0.01)
+    }
+
+    @Test
+    fun testOtherSavingsDrawnDownBeforeIsasInTaxMinimizedStrategy() {
+        // Account setup: ISA with £50k, GIA with £30k, Current account with £10k.
+        // Target annual income £60k. Pension harvested up to Basic Rate (£50,270).
+        // Remaining needed £9,730 should be drawn from Current account, NOT from ISA!
+        val accounts = listOf(
+            Account("isa1", "Chris Stocks ISA", AccountType.ISA, Institution.HOSTED, 50000.0, personId = "person-1"),
+            Account("gia1", "Chris General Investment", AccountType.GENERAL_INVESTMENT, Institution.HOSTED, 30000.0, personId = "person-1"),
+            Account("c1", "Chris Current", AccountType.CURRENT, Institution.HSBC, 10000.0, personId = "person-1"),
+            Account("p1", "Chris Pension", AccountType.PENSION, Institution.AVIVA, 500000.0, personId = "person-1")
+        )
+        val assumptions = InvestmentAssumptions(equityReturn = 0.0, bondReturn = 0.0, cashReturn = 0.0, inflationRate = 0.0)
+        val preferences = DrawdownPreferences(
+            targetAnnualIncome = 60000.0,
+            inflationAdjusted = false,
+            strategy = DrawdownStrategy.TAX_MINIMIZED,
+            startAge = 60,
+            endAge = 62
+        )
+        val person1 = Person("person-1", "Chris", 1966, 60)
+        val person2 = Person("person-2", "Lisa", 1968, 60)
+
+        val projection = PensionCalculator.calculateProjections(
+            accounts = accounts,
+            assumptions = assumptions,
+            preferences = preferences,
+            person1 = person1,
+            person2 = person2,
+            retirementAge1 = 60,
+            retirementAge2 = 60,
+            projectionType = ProjectionType.INDIVIDUAL_CHRIS
+        )
+
+        val firstYear = projection.results.first()
+        val withdrawals = firstYear.withdrawals
+
+        val isaWithdrawal = withdrawals.firstOrNull { it.potName.contains("ISA") }
+        assertTrue("ISA should NOT be drawn before other savings in Tax-Minimized strategy", isaWithdrawal == null)
+    }
+
+    @Test
+    fun testGiaIncursTaxOnSavingsInterestWhilstInGia() {
+        // Chris has £200,000 in a GIA earning 5% interest = £10,000 return.
+        // Also has guaranteed pension income putting him in the higher rate tax band.
+        // The return in the GIA must incur tax on savings interest (£9,500 taxable @ 40% = £3,800).
+        val accounts = listOf(
+            Account("db1", "Final Salary DB", AccountType.FINAL_SALARY, Institution.HOSTED, 60000.0, payoutAge = 60, personId = "person-1"),
+            Account("gia1", "Taxable GIA", AccountType.GENERAL_INVESTMENT, Institution.HOSTED, 200000.0, interestRate = 5.0, personId = "person-1")
+        )
+        val assumptions = InvestmentAssumptions(equityReturn = 0.05, bondReturn = 0.03, cashReturn = 0.05, inflationRate = 0.0)
+        val preferences = DrawdownPreferences(
+            targetAnnualIncome = 40000.0, // Fully met by DB pension
+            inflationAdjusted = false,
+            startAge = 60,
+            endAge = 61
+        )
+        val person1 = Person("person-1", "Chris", 1966, 60)
+        val person2 = Person("person-2", "Lisa", 1968, 60)
+
+        val projection = PensionCalculator.calculateProjections(
+            accounts = accounts,
+            assumptions = assumptions,
+            preferences = preferences,
+            person1 = person1,
+            person2 = person2,
+            retirementAge1 = 60,
+            retirementAge2 = 60,
+            projectionType = ProjectionType.INDIVIDUAL_CHRIS
+        )
+
+        val firstYear = projection.results.first()
+        val giaSavingsTaxWithdrawal = firstYear.withdrawals.firstOrNull { it.potName.contains("GIA Savings Tax") }
+        assertTrue("GIA savings tax entry should be recorded in withdrawals", giaSavingsTaxWithdrawal != null)
+        assertTrue("Tax should be paid on savings return in GIA", giaSavingsTaxWithdrawal!!.taxPaid > 0.0)
     }
 }
 
