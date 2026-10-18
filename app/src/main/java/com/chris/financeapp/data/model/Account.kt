@@ -32,10 +32,10 @@ data class Account(
     var balance: Double,
     val monthlyContribution: Double = 0.0,
     val employerContribution: Double = 0.0, // DC pensions only
-    val interestRate: Double = 0.0, // interest rate or growth rate (annual %)
+    val interestRate: Double? = null, // interest rate or growth rate (annual %)
     val annualManagementCharge: Double = 0.0, // AMC % (for investments/pensions)
     val isConnected: Boolean = false,
-    val personId: String = "person-1", // matching pension logic (Chris / Lisa)
+    val personId: String = "person-1", // matching pension logic (Person 1 / Person 2)
     val accountNumber: String = "",
     val isIncluded: Boolean = true,
     val payoutAge: Int = 65,

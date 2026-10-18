@@ -1,0 +1,11 @@
+services:
+  retiretrack-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: retiretrack-web
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production

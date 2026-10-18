@@ -357,9 +357,9 @@ fun DashboardScreen(
                                                 }
                                                 // Ownership Tag (Clickable to Toggle!)
                                                 if (drawdown.isCouple) {
-                                                    val isLisa = account.personId == "person-2"
-                                                    val ownerName = if (isLisa) person2.name else person1.name
-                                                    val ownerColor = if (isLisa) Color(0xFFD946EF) else Color(0xFF6366F1)
+                                                    val isPerson2 = account.personId == "person-2"
+                                                    val ownerName = if (isPerson2) person2.name else person1.name
+                                                    val ownerColor = if (isPerson2) Color(0xFFD946EF) else Color(0xFF6366F1)
                                                     Box(
                                                         modifier = Modifier
                                                             .background(
@@ -367,7 +367,7 @@ fun DashboardScreen(
                                                                 RoundedCornerShape(4.dp)
                                                             )
                                                             .clickable {
-                                                                val updated = account.copy(personId = if (isLisa) "person-1" else "person-2")
+                                                                val updated = account.copy(personId = if (isPerson2) "person-1" else "person-2")
                                                                 repository.addOrUpdateAccount(updated)
                                                                 accounts.clear()
                                                                 accounts.addAll(repository.getAccounts())

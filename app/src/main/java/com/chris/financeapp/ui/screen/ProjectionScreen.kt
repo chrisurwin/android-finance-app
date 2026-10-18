@@ -52,7 +52,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
     var inflationRate by remember { mutableStateOf((assumptions.inflationRate * 100).toFloat()) }
     var targetAnnualIncome by remember { mutableStateOf(drawdown.targetAnnualIncome) }
 
-    var projectionType by remember { mutableStateOf(if (drawdown.isCouple) ProjectionType.COUPLE else ProjectionType.INDIVIDUAL_CHRIS) }
+    var projectionType by remember { mutableStateOf(if (drawdown.isCouple) ProjectionType.COUPLE else ProjectionType.INDIVIDUAL_PERSON1) }
     var drawdownStrategy by remember { mutableStateOf(drawdown.strategy) }
     var lumpSumOption by remember { mutableStateOf(drawdown.lumpSumOption) }
     var showYearlyBreakdown by remember { mutableStateOf(false) }
@@ -235,13 +235,13 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Projection Mode", fontSize = 11.sp, color = TextSecondary)
                         SegmentedControl(
-                            items = listOf(ProjectionType.INDIVIDUAL_CHRIS, ProjectionType.INDIVIDUAL_LISA, ProjectionType.COUPLE),
+                            items = listOf(ProjectionType.INDIVIDUAL_PERSON1, ProjectionType.INDIVIDUAL_PERSON2, ProjectionType.COUPLE),
                             selectedItem = projectionType,
                             onItemSelected = { projectionType = it },
                             labelProvider = {
                                 when (it) {
-                                    ProjectionType.INDIVIDUAL_CHRIS -> person1.name
-                                    ProjectionType.INDIVIDUAL_LISA -> person2.name
+                                    ProjectionType.INDIVIDUAL_PERSON1 -> person1.name
+                                    ProjectionType.INDIVIDUAL_PERSON2 -> person2.name
                                     ProjectionType.COUPLE -> "Couple (Joint)"
                                 }
                             }
@@ -377,8 +377,8 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 
                 // Determine depletion / shortfall age
                 val retirementAgeActive = when (projectionType) {
-                    ProjectionType.INDIVIDUAL_CHRIS -> retirementAge1
-                    ProjectionType.INDIVIDUAL_LISA -> retirementAge2
+                    ProjectionType.INDIVIDUAL_PERSON1 -> retirementAge1
+                    ProjectionType.INDIVIDUAL_PERSON2 -> retirementAge2
                     ProjectionType.COUPLE -> retirementAge1
                 }
                 val firstShortfall = projection.results.firstOrNull { it.age >= retirementAgeActive && (!it.canRetire || (it.totalPensionValue + it.totalSavings) <= 0.0) }
@@ -499,7 +499,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Person 1's Retirement Age slider
-                if (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_CHRIS) {
+                if (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_PERSON1) {
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -522,7 +522,7 @@ fun ProjectionScreen(repository: FinanceRepository, onNavigateBack: () -> Unit) 
                 }
 
                 // Person 2's Retirement Age slider
-                if (drawdown.isCouple && (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_LISA)) {
+                if (drawdown.isCouple && (projectionType == ProjectionType.COUPLE || projectionType == ProjectionType.INDIVIDUAL_PERSON2)) {
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),

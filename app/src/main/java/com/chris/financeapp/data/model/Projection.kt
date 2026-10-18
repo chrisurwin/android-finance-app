@@ -4,8 +4,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class ProjectionType {
-    INDIVIDUAL_CHRIS,
-    INDIVIDUAL_LISA,
+    INDIVIDUAL_PERSON1,
+    INDIVIDUAL_PERSON2,
     COUPLE
 }
 
@@ -42,7 +42,7 @@ data class InvestmentAssumptions(
 
 @Serializable
 data class DrawdownPreferences(
-    var targetAnnualIncome: Double = 25000.0,
+    var targetAnnualIncome: Double = 0.0,
     var inflationAdjusted: Boolean = true,
     var startAge: Int = 65,
     var endAge: Int = 95,
@@ -70,8 +70,8 @@ data class ProjectionResult(
     val annualIncome: Double,
     val netIncome: Double,
     val tax: Double,
-    val tax1: Double = 0.0, // Chris's tax component
-    val tax2: Double = 0.0, // Lisa's tax component
+    val tax1: Double = 0.0, // Person 1's tax component
+    val tax2: Double = 0.0, // Person 2's tax component
     val canRetire: Boolean,
     val withdrawals: List<WithdrawalDetail> = emptyList()
 )

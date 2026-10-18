@@ -114,24 +114,27 @@ class FinanceRepository(private val context: Context) {
     // --- Pension Projections Parameters ---
 
     fun getPerson(id: String = "person-1"): Person {
-        val key = if (id == "person-2") "person_lisa" else "person"
-        val json = dataPrefs.getString(key, null)
+        val json = if (id == "person-2") {
+            dataPrefs.getString("person_2", null)
+        } else {
+            dataPrefs.getString("person_1", null) ?: dataPrefs.getString("person", null)
+        }
         if (json != null) {
             try {
                 return parser.decodeFromString<Person>(json)
             } catch (e: Exception) {}
         }
         val default = if (id == "person-2") {
-            Person("person-2", "User 2", 1982, 65)
+            Person("person-2", "Person 2", 1982, 65)
         } else {
-            Person("person-1", "User 1", 1980, 65)
+            Person("person-1", "Person 1", 1980, 65)
         }
         savePerson(default)
         return default
     }
 
     fun savePerson(person: Person) {
-        val key = if (person.id == "person-2") "person_lisa" else "person"
+        val key = if (person.id == "person-2") "person_2" else "person_1"
         dataPrefs.edit().putString(key, parser.encodeToString(person)).apply()
     }
 

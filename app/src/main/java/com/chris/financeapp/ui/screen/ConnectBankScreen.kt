@@ -212,14 +212,14 @@ fun ConnectBankScreen(repository: FinanceRepository, onNavigateBack: () -> Unit)
                                 selected = selectedOwner == "person-1",
                                 onClick = { selectedOwner = "person-1" }
                             )
-                            Text("Chris", color = TextPrimary)
+                            Text("Person 1", color = TextPrimary)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(
                                 selected = selectedOwner == "person-2",
                                 onClick = { selectedOwner = "person-2" }
                             )
-                            Text("Lisa (Wife)", color = TextPrimary)
+                            Text("Person 2", color = TextPrimary)
                         }
                     }
 
