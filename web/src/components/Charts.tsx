@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ProjectionResult } from '../types';
+import { ProjectionResult, MonteCarloYearPercentile } from '../types';
 
 export interface DonutSlice {
   label: string;
@@ -406,6 +406,324 @@ export const ProjectionChart: React.FC<ProjectionChartProps> = ({ data, retireme
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+interface MonteCarloFanChartProps {
+  data: MonteCarloYearPercentile[];
+  retirementAge: number;
+}
+
+export const MonteCarloFanChart: React.FC<MonteCarloFanChartProps> = ({ data, retirementAge }) => {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="chart-empty-state">
+        <p>No simulation trajectory data available.</p>
+      </div>
+    );
+  }
+
+  const width = 900;
+  const height = 340;
+  const padding = { top: 25, right: 30, bottom: 45, left: 75 };
+  const graphWidth = width - padding.left - padding.right;
+  const graphHeight = height - padding.top - padding.bottom;
+
+  const minAge = data[0].age;
+  const maxAge = data[data.length - 1].age;
+  const ageSpan = Math.max(1, maxAge - minAge);
+
+  const maxVal = Math.max(
+    ...data.map(d => Math.max(d.p90, d.p50, 10000))
+  );
+  const roundedMax = Math.ceil(maxVal * 1.1 / 50000) * 50000;
+
+  const getX = (age: number) => padding.left + ((age - minAge) / ageSpan) * graphWidth;
+  const getY = (val: number) => padding.top + (1 - Math.max(0, val) / roundedMax) * graphHeight;
+
+  // Build polygon points for 10th-90th band (80% confidence interval)
+  const band80Points = [
+    ...data.map(d => `${getX(d.age)},${getY(d.p90)}`),
+    ...data.slice().reverse().map(d => `${getX(d.age)},${getY(d.p10)}`)
+  ].join(' ');
+
+  // Build polygon points for 25th-75th band (50% confidence interval)
+  const band50Points = [
+    ...data.map(d => `${getX(d.age)},${getY(d.p75)}`),
+    ...data.slice().reverse().map(d => `${getX(d.age)},${getY(d.p25)}`)
+  ].join(' ');
+
+  // Trajectory paths
+  const p50Line = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(d.age)} ${getY(d.p50)}`).join(' ');
+  const p90Line = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(d.age)} ${getY(d.p90)}`).join(' ');
+  const p10Line = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(d.age)} ${getY(d.p10)}`).join(' ');
+
+  // Y-axis grid
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(factor => {
+    const val = roundedMax * factor;
+    return {
+      y: getY(val),
+      label: val >= 1000000 ? `£${(val / 1000000).toFixed(1)}M` : `£${Math.round(val / 1000)}k`
+    };
+  });
+
+  // X-axis ticks
+  const xTicks: number[] = [];
+  const step = Math.ceil(ageSpan / 8);
+  for (let a = minAge; a <= maxAge; a += step) {
+    xTicks.push(a);
+  }
+  if (!xTicks.includes(maxAge)) xTicks.push(maxAge);
+
+  const hoverItem = hoverIndex !== null ? data[hoverIndex] : null;
+
+  return (
+    <div className="projection-chart-card mc-chart-card">
+      <div className="chart-header">
+        <div>
+          <h3 className="chart-title">Monte Carlo Wealth Distribution (Sequence of Returns)</h3>
+          <p className="chart-subtitle">
+            500 randomized trials across economic cycles — 80% and 50% confidence envelopes
+          </p>
+        </div>
+        <div className="chart-series-legend">
+          <div className="legend-badge">
+            <span className="dot" style={{ backgroundColor: '#10b981' }} /> 90th %ile (Bullish)
+          </div>
+          <div className="legend-badge">
+            <span className="dot" style={{ backgroundColor: '#818cf8' }} /> 50th %ile (Median)
+          </div>
+          <div className="legend-badge">
+            <span className="dot" style={{ backgroundColor: '#f59e0b' }} /> 10th %ile (Bear Stress)
+          </div>
+          <div className="legend-badge">
+            <span className="dot" style={{ backgroundColor: 'rgba(99, 102, 241, 0.4)', border: '1px solid #6366f1' }} /> Confidence Band
+          </div>
+          <div className="legend-badge">
+            <span className="line-dashed" /> Retirement Age ({retirementAge})
+          </div>
+        </div>
+      </div>
+
+      <div className="chart-svg-container" style={{ position: 'relative' }}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="projection-svg"
+          onMouseLeave={() => setHoverIndex(null)}
+        >
+          <defs>
+            <linearGradient id="mcBand80Grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#6366f1" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#6366f1" stopOpacity="0.05" />
+            </linearGradient>
+            <linearGradient id="mcBand50Grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#6366f1" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#6366f1" stopOpacity="0.12" />
+            </linearGradient>
+          </defs>
+
+          {/* Grid lines */}
+          {yTicks.map((tick, i) => (
+            <g key={i}>
+              <line
+                x1={padding.left}
+                y1={tick.y}
+                x2={width - padding.right}
+                y2={tick.y}
+                stroke="rgba(255, 255, 255, 0.08)"
+                strokeDasharray="4 4"
+              />
+              <text
+                x={padding.left - 10}
+                y={tick.y + 4}
+                textAnchor="end"
+                className="axis-label"
+              >
+                {tick.label}
+              </text>
+            </g>
+          ))}
+
+          {/* X Axis labels */}
+          {xTicks.map((age, i) => (
+            <text
+              key={i}
+              x={getX(age)}
+              y={height - 12}
+              textAnchor="middle"
+              className="axis-label"
+            >
+              Age {age}
+            </text>
+          ))}
+
+          {/* Retirement vertical line marker */}
+          {retirementAge >= minAge && retirementAge <= maxAge && (
+            <g>
+              <line
+                x1={getX(retirementAge)}
+                y1={padding.top}
+                x2={getX(retirementAge)}
+                y2={height - padding.bottom}
+                stroke="#ec4899"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+              />
+              <text
+                x={getX(retirementAge) + 6}
+                y={padding.top + 16}
+                fill="#ec4899"
+                fontSize="11"
+                fontWeight="bold"
+              >
+                Retire Age {retirementAge}
+              </text>
+            </g>
+          )}
+
+          {/* 80% Confidence Interval Band (p10 to p90) */}
+          <polygon
+            points={band80Points}
+            fill="url(#mcBand80Grad)"
+            stroke="none"
+          />
+
+          {/* 50% Confidence Interval Band (p25 to p75) */}
+          <polygon
+            points={band50Points}
+            fill="url(#mcBand50Grad)"
+            stroke="none"
+          />
+
+          {/* Boundary lines */}
+          <path
+            d={p90Line}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth={1.8}
+            strokeDasharray="3 3"
+          />
+          <path
+            d={p10Line}
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth={1.8}
+            strokeDasharray="3 3"
+          />
+
+          {/* P50 Median Line */}
+          <path
+            d={p50Line}
+            fill="none"
+            stroke="#818cf8"
+            strokeWidth={2.8}
+            filter="drop-shadow(0 0 4px rgba(99, 102, 241, 0.5))"
+          />
+
+          {/* Active hover crosshair */}
+          {hoverItem && (
+            <g>
+              <line
+                x1={getX(hoverItem.age)}
+                y1={padding.top}
+                x2={getX(hoverItem.age)}
+                y2={height - padding.bottom}
+                stroke="rgba(255, 255, 255, 0.4)"
+                strokeWidth={1}
+                strokeDasharray="2 2"
+              />
+              <circle
+                cx={getX(hoverItem.age)}
+                cy={getY(hoverItem.p50)}
+                r={5}
+                fill="#818cf8"
+                stroke="#ffffff"
+                strokeWidth={2}
+              />
+              <circle
+                cx={getX(hoverItem.age)}
+                cy={getY(hoverItem.p90)}
+                r={4}
+                fill="#10b981"
+              />
+              <circle
+                cx={getX(hoverItem.age)}
+                cy={getY(hoverItem.p10)}
+                r={4}
+                fill="#f59e0b"
+              />
+            </g>
+          )}
+
+          {/* Hover trigger hitboxes */}
+          {data.map((d, index) => {
+            const x = getX(d.age);
+            const boxWidth = graphWidth / Math.max(1, data.length);
+            return (
+              <rect
+                key={index}
+                x={x - boxWidth / 2}
+                y={padding.top}
+                width={boxWidth}
+                height={graphHeight}
+                fill="transparent"
+                onMouseEnter={() => setHoverIndex(index)}
+                style={{ cursor: 'pointer' }}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Hover Tooltip Overlay */}
+        {hoverItem && (
+          <div
+            className="chart-tooltip"
+            style={{
+              left: `${Math.min(Math.max(10, (getX(hoverItem.age) / width) * 100), 72)}%`,
+              top: '15px'
+            }}
+          >
+            <div className="tooltip-title">
+              Age {hoverItem.age} ({hoverItem.year})
+              {hoverItem.age >= retirementAge ? (
+                <span className="tooltip-tag retired">In Retirement</span>
+              ) : (
+                <span className="tooltip-tag working">Accumulating</span>
+              )}
+            </div>
+            <div className="tooltip-grid">
+              <div className="tooltip-row">
+                <span className="dot" style={{ backgroundColor: '#10b981' }} />
+                <span>90th %ile (Bull):</span>
+                <strong>£{Math.round(hoverItem.p90).toLocaleString('en-GB')}</strong>
+              </div>
+              <div className="tooltip-row">
+                <span className="dot" style={{ backgroundColor: '#a78bfa' }} />
+                <span>75th %ile:</span>
+                <strong>£{Math.round(hoverItem.p75).toLocaleString('en-GB')}</strong>
+              </div>
+              <div className="tooltip-row">
+                <span className="dot" style={{ backgroundColor: '#818cf8' }} />
+                <span>50th %ile (Median):</span>
+                <strong>£{Math.round(hoverItem.p50).toLocaleString('en-GB')}</strong>
+              </div>
+              <div className="tooltip-row">
+                <span className="dot" style={{ backgroundColor: '#fbbf24' }} />
+                <span>25th %ile:</span>
+                <strong>£{Math.round(hoverItem.p25).toLocaleString('en-GB')}</strong>
+              </div>
+              <div className="tooltip-row">
+                <span className="dot" style={{ backgroundColor: '#f59e0b' }} />
+                <span>10th %ile (Bear):</span>
+                <strong>£{Math.round(hoverItem.p10).toLocaleString('en-GB')}</strong>
+              </div>
             </div>
           </div>
         )}

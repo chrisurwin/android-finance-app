@@ -138,3 +138,35 @@ export interface AppDataExport {
   assumptions: InvestmentAssumptions;
   drawdownPreferences: DrawdownPreferences;
 }
+
+export interface StochasticYearSample {
+  equityReturn: number;
+  bondReturn: number;
+  cashReturn: number;
+  inflationRate: number;
+}
+
+export interface MonteCarloYearPercentile {
+  age: number;
+  year: number;
+  p10: number; // 10th percentile (bear market)
+  p25: number;
+  p50: number; // median
+  p75: number;
+  p90: number; // 90th percentile (bull market)
+}
+
+export interface MonteCarloResult {
+  totalTrials: number;
+  successRate: number; // percentage (0 - 100)
+  successfulTrials: number;
+  failedTrials: number;
+  medianEndingWealth: number;
+  p10EndingWealth: number;
+  p90EndingWealth: number;
+  earliestDepletionAge: number | null;
+  medianDepletionAge: number | null;
+  yearlyPercentiles: MonteCarloYearPercentile[];
+  confidenceRating: 'HIGH' | 'MODERATE' | 'CAUTION' | 'CRITICAL';
+  simulatedAt: string;
+}

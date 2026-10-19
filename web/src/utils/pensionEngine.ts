@@ -8,7 +8,10 @@ import {
   RetirementProjection,
   ProjectionResult,
   WithdrawalDetail,
-  PotYearBreakdown
+  PotYearBreakdown,
+  StochasticYearSample,
+  MonteCarloResult,
+  MonteCarloYearPercentile
 } from '../types';
 
 export const MAX_TAX_FREE_LUMP_SUM = 268275.0; // UK Lump Sum Allowance (LSA)
@@ -340,7 +343,9 @@ export interface PotGrowthCalculation {
 export function getPotGrowthRate(
   pot: Account,
   assumptions: InvestmentAssumptions,
-  portfolioGrowthRate: number
+  portfolioGrowthRate: number,
+  customEquityReturn?: number,
+  customCashReturn?: number
 ): PotGrowthCalculation {
   const hasExplicitRate = pot.interestRate !== undefined &&
                           pot.interestRate !== null &&
@@ -348,9 +353,17 @@ export function getPotGrowthRate(
 
   let grossRate: number;
   if (hasExplicitRate) {
-    grossRate = Number(pot.interestRate) / 100.0;
+    const baseRate = Number(pot.interestRate) / 100.0;
+    if (customEquityReturn !== undefined && baseRate > 0.0 && pot.type !== 'CURRENT') {
+      const equityShock = customEquityReturn - assumptions.equityReturn;
+      grossRate = Math.max(-0.50, baseRate + equityShock);
+    } else {
+      grossRate = baseRate;
+    }
   } else {
-    grossRate = pot.type === 'CURRENT' ? assumptions.cashReturn : portfolioGrowthRate;
+    grossRate = pot.type === 'CURRENT'
+      ? (customCashReturn !== undefined ? customCashReturn : assumptions.cashReturn)
+      : portfolioGrowthRate;
   }
 
   const amcRate = (pot.annualManagementCharge !== undefined &&
@@ -361,7 +374,7 @@ export function getPotGrowthRate(
 
   const appliesAmc = pot.type === 'PENSION' || pot.type === 'ISA' || pot.type === 'GENERAL_INVESTMENT';
   const effectiveAmc = appliesAmc ? amcRate : 0.0;
-  const netRate = Math.max(0.0, grossRate - effectiveAmc);
+  const netRate = grossRate - effectiveAmc;
 
   return { grossRate, netRate, amcRate: effectiveAmc };
 }
@@ -377,7 +390,8 @@ export function calculateProjections(
   person2: Person,
   retirementAge1: number,
   retirementAge2: number,
-  projectionType: ProjectionType = 'COUPLE'
+  projectionType: ProjectionType = 'COUPLE',
+  stochasticSchedule?: StochasticYearSample[]
 ): RetirementProjection {
   const currentYear = new Date().getFullYear();
   const currentAge1 = currentYear - person1.birthYear;
@@ -462,6 +476,7 @@ export function calculateProjections(
 
   const results: ProjectionResult[] = [];
   const yearsToProject = Math.max(1, endAge - currentAgeActive + 1);
+  let cumulativeInflationFactor = 1.0;
 
   for (let yearOffset = 0; yearOffset < yearsToProject; yearOffset++) {
     const year = currentYear + yearOffset;
@@ -476,9 +491,28 @@ export function calculateProjections(
       ? (isRetired1 || isRetired2)
       : (projectionType === 'INDIVIDUAL_PERSON2' ? isRetired2 : isRetired1);
 
-    const inflationFactor = preferences.inflationAdjusted
-      ? Math.pow(1.0 + assumptions.inflationRate, yearOffset)
-      : 1.0;
+    const sample = stochasticSchedule ? stochasticSchedule[yearOffset] : null;
+    const currentEquityReturn = sample ? sample.equityReturn : assumptions.equityReturn;
+    const currentBondReturn = sample ? sample.bondReturn : assumptions.bondReturn;
+    const currentCashReturn = sample ? sample.cashReturn : assumptions.cashReturn;
+    const currentInflationRate = sample ? sample.inflationRate : assumptions.inflationRate;
+
+    const portfolioGrowthRate = (
+      currentEquityReturn * assumptions.equityAllocation +
+      currentBondReturn * assumptions.bondAllocation +
+      currentCashReturn * assumptions.cashAllocation
+    );
+
+    if (sample) {
+      if (yearOffset > 0 && preferences.inflationAdjusted) {
+        cumulativeInflationFactor *= (1.0 + currentInflationRate);
+      }
+    } else {
+      cumulativeInflationFactor = preferences.inflationAdjusted
+        ? Math.pow(1.0 + assumptions.inflationRate, yearOffset)
+        : 1.0;
+    }
+    const inflationFactor = cumulativeInflationFactor;
 
     // Snapshot start-of-year balances for per-pot breakdown
     const potStartBalances = new Map<string, number>();
@@ -1337,19 +1371,19 @@ export function calculateProjections(
       const potTaxPaidMap = new Map<string, number>();
 
       dcPensions.forEach(p => {
-        const growthInfo = getPotGrowthRate(p, assumptions, portfolioGrowthRate);
+        const growthInfo = getPotGrowthRate(p, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn);
         const growth = p.balance * growthInfo.netRate;
-        p.balance += growth;
+        p.balance = Math.max(0.0, p.balance + growth);
         potGrowthAmounts.set(p.id, { rate: growthInfo.netRate, growth });
       });
 
       // GIA annual growth & Capital Gains Tax (with £3,000 annual exemption)
       const giaGrowth1 = savings
         .filter(s => s.personId !== 'person-2' && s.type === 'GENERAL_INVESTMENT')
-        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate).grossRate, 0);
+        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn).grossRate, 0);
       const giaGrowth2 = savings
         .filter(s => s.personId === 'person-2' && s.type === 'GENERAL_INVESTMENT')
-        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate).grossRate, 0);
+        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn).grossRate, 0);
 
       const giaTax1 = calculateTaxOnGiaGrowth(giaGrowth1, taxableIncome1);
       const giaTax2 = calculateTaxOnGiaGrowth(giaGrowth2, taxableIncome2);
@@ -1358,7 +1392,7 @@ export function calculateProjections(
       tax2 += giaTax2;
 
       savings.forEach(s => {
-        const growthInfo = getPotGrowthRate(s, assumptions, portfolioGrowthRate);
+        const growthInfo = getPotGrowthRate(s, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn);
         const rawGrowth = s.balance * growthInfo.grossRate;
 
         if (s.type === 'GENERAL_INVESTMENT') {
@@ -1368,7 +1402,7 @@ export function calculateProjections(
           const taxForThis = totalGrowth > 0.0 ? totalTax * (rawGrowth / totalGrowth) : 0.0;
           const amcAmount = s.balance * growthInfo.amcRate;
 
-          s.balance += Math.max(0.0, rawGrowth - taxForThis - amcAmount);
+          s.balance = Math.max(0.0, s.balance + rawGrowth - taxForThis - amcAmount);
           potGrowthAmounts.set(s.id, { rate: growthInfo.netRate, growth: rawGrowth });
           potTaxPaidMap.set(s.id, taxForThis);
 
@@ -1385,7 +1419,7 @@ export function calculateProjections(
           }
         } else {
           const growth = s.balance * growthInfo.netRate;
-          s.balance += growth;
+          s.balance = Math.max(0.0, s.balance + growth);
           potGrowthAmounts.set(s.id, { rate: growthInfo.netRate, growth });
         }
       });
@@ -1478,18 +1512,18 @@ export function calculateProjections(
       const potTaxPaidMap = new Map<string, number>();
 
       dcPensions.forEach(p => {
-        const growthInfo = getPotGrowthRate(p, assumptions, portfolioGrowthRate);
+        const growthInfo = getPotGrowthRate(p, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn);
         const growth = p.balance * growthInfo.netRate;
-        p.balance += growth;
+        p.balance = Math.max(0.0, p.balance + growth);
         potGrowthAmounts.set(p.id, { rate: growthInfo.netRate, growth });
       });
 
       const giaGrowth1 = savings
         .filter(s => s.personId !== 'person-2' && s.type === 'GENERAL_INVESTMENT')
-        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate).grossRate, 0);
+        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn).grossRate, 0);
       const giaGrowth2 = savings
         .filter(s => s.personId === 'person-2' && s.type === 'GENERAL_INVESTMENT')
-        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate).grossRate, 0);
+        .reduce((sum, s) => sum + s.balance * getPotGrowthRate(s, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn).grossRate, 0);
 
       const giaTax1 = calculateTaxOnGiaGrowth(giaGrowth1, 0.0);
       const giaTax2 = calculateTaxOnGiaGrowth(giaGrowth2, 0.0);
@@ -1497,7 +1531,7 @@ export function calculateProjections(
       totalTaxPaid += currentTax;
 
       savings.forEach(s => {
-        const growthInfo = getPotGrowthRate(s, assumptions, portfolioGrowthRate);
+        const growthInfo = getPotGrowthRate(s, assumptions, portfolioGrowthRate, currentEquityReturn, currentCashReturn);
         const rawGrowth = s.balance * growthInfo.grossRate;
 
         if (s.type === 'GENERAL_INVESTMENT') {
@@ -1507,12 +1541,12 @@ export function calculateProjections(
           const taxForThis = totalGrowth > 0.0 ? totalTax * (rawGrowth / totalGrowth) : 0.0;
           const amcAmount = s.balance * growthInfo.amcRate;
 
-          s.balance += Math.max(0.0, rawGrowth - taxForThis - amcAmount);
+          s.balance = Math.max(0.0, rawGrowth - taxForThis - amcAmount);
           potGrowthAmounts.set(s.id, { rate: growthInfo.netRate, growth: rawGrowth });
           potTaxPaidMap.set(s.id, taxForThis);
         } else {
           const growth = s.balance * growthInfo.netRate;
-          s.balance += growth;
+          s.balance = Math.max(0.0, s.balance + growth);
           potGrowthAmounts.set(s.id, { rate: growthInfo.netRate, growth });
         }
       });
@@ -1581,5 +1615,147 @@ export function calculateProjections(
     fundsLastUntilAge,
     peakPensionPot,
     totalContributionsAccumulated
+  };
+}
+
+/**
+ * Stochastic Monte Carlo Simulation Engine
+ * Runs N trials with randomized annual market returns and inflation volatility to stress-test
+ * sequence-of-returns risk and determine portfolio longevity probability.
+ */
+export function runMonteCarloSimulation(
+  accounts: Account[],
+  assumptions: InvestmentAssumptions,
+  preferences: DrawdownPreferences,
+  person1: Person,
+  person2: Person,
+  retirementAge1: number,
+  retirementAge2: number,
+  projectionType: ProjectionType,
+  trialCount: number = 500
+): MonteCarloResult {
+  const currentYear = new Date().getFullYear();
+  const currentAge1 = currentYear - person1.birthYear;
+  const currentAge2 = currentYear - person2.birthYear;
+  const currentAgeActive = projectionType === 'INDIVIDUAL_PERSON2' ? currentAge2 : currentAge1;
+  const endAge = preferences.endAge;
+  const yearsToProject = Math.max(1, endAge - currentAgeActive + 1);
+
+  // Standard historical annual volatility (standard deviations)
+  const equityVol = 0.16;
+  const bondVol = 0.07;
+  const cashVol = 0.015;
+  const inflVol = 0.015;
+
+  function sampleNormal(mean: number, stdDev: number): number {
+    let u1 = Math.random();
+    let u2 = Math.random();
+    while (u1 <= 1e-7) u1 = Math.random();
+    const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+    return mean + z0 * stdDev;
+  }
+
+  const endingWealths: number[] = [];
+  const depletionAges: number[] = [];
+  const yearlyNetWorthMatrix: number[][] = Array.from({ length: yearsToProject }, () => []);
+  let successfulTrials = 0;
+
+  for (let trial = 0; trial < trialCount; trial++) {
+    const stochasticSchedule: StochasticYearSample[] = [];
+    for (let y = 0; y < yearsToProject; y++) {
+      stochasticSchedule.push({
+        equityReturn: sampleNormal(assumptions.equityReturn, equityVol),
+        bondReturn: sampleNormal(assumptions.bondReturn, bondVol),
+        cashReturn: Math.max(0.0, sampleNormal(assumptions.cashReturn, cashVol)),
+        inflationRate: Math.max(0.0, sampleNormal(assumptions.inflationRate, inflVol))
+      });
+    }
+
+    const trialRes = calculateProjections(
+      accounts,
+      assumptions,
+      preferences,
+      person1,
+      person2,
+      retirementAge1,
+      retirementAge2,
+      projectionType,
+      stochasticSchedule
+    );
+
+    const isSuccess = trialRes.feasible;
+    if (isSuccess) {
+      successfulTrials++;
+    } else {
+      depletionAges.push(trialRes.fundsLastUntilAge);
+    }
+
+    const finalNetWorth = trialRes.results.length > 0
+      ? trialRes.results[trialRes.results.length - 1].totalNetWorth
+      : 0;
+    endingWealths.push(finalNetWorth);
+
+    trialRes.results.forEach((r, idx) => {
+      if (idx < yearsToProject) {
+        yearlyNetWorthMatrix[idx].push(r.totalNetWorth);
+      }
+    });
+  }
+
+  endingWealths.sort((a, b) => a - b);
+  const getPercentile = (arr: number[], p: number) => {
+    if (arr.length === 0) return 0;
+    const idx = Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * p)));
+    return arr[idx];
+  };
+
+  const successRate = Math.round((successfulTrials / trialCount) * 1000) / 10;
+  const p10EndingWealth = Math.round(getPercentile(endingWealths, 0.10));
+  const medianEndingWealth = Math.round(getPercentile(endingWealths, 0.50));
+  const p90EndingWealth = Math.round(getPercentile(endingWealths, 0.90));
+
+  depletionAges.sort((a, b) => a - b);
+  const earliestDepletionAge = depletionAges.length > 0 ? depletionAges[0] : null;
+  const medianDepletionAge = depletionAges.length > 0 ? getPercentile(depletionAges, 0.50) : null;
+
+  const yearlyPercentiles: MonteCarloYearPercentile[] = yearlyNetWorthMatrix.map((row, idx) => {
+    row.sort((a, b) => a - b);
+    const age = currentAgeActive + idx;
+    const year = currentYear + idx;
+    return {
+      age,
+      year,
+      p10: Math.round(getPercentile(row, 0.10)),
+      p25: Math.round(getPercentile(row, 0.25)),
+      p50: Math.round(getPercentile(row, 0.50)),
+      p75: Math.round(getPercentile(row, 0.75)),
+      p90: Math.round(getPercentile(row, 0.90))
+    };
+  });
+
+  let confidenceRating: 'HIGH' | 'MODERATE' | 'CAUTION' | 'CRITICAL';
+  if (successRate >= 90) {
+    confidenceRating = 'HIGH';
+  } else if (successRate >= 75) {
+    confidenceRating = 'MODERATE';
+  } else if (successRate >= 60) {
+    confidenceRating = 'CAUTION';
+  } else {
+    confidenceRating = 'CRITICAL';
+  }
+
+  return {
+    totalTrials: trialCount,
+    successRate,
+    successfulTrials,
+    failedTrials: trialCount - successfulTrials,
+    medianEndingWealth,
+    p10EndingWealth,
+    p90EndingWealth,
+    earliestDepletionAge,
+    medianDepletionAge,
+    yearlyPercentiles,
+    confidenceRating,
+    simulatedAt: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   };
 }

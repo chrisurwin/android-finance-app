@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -11,7 +11,10 @@ import {
   TrendingUp,
   Coins,
   ShieldCheck,
-  Percent
+  Percent,
+  Dices,
+  RotateCcw,
+  Activity
 } from 'lucide-react';
 import {
   Account,
@@ -20,11 +23,12 @@ import {
   Person,
   ProjectionType,
   DrawdownStrategy,
-  LumpSumOption
+  LumpSumOption,
+  MonteCarloResult
 } from '../types';
-import { calculateProjections } from '../utils/pensionEngine';
+import { calculateProjections, runMonteCarloSimulation } from '../utils/pensionEngine';
 import { downloadDetailedCsv } from '../utils/storage';
-import { ProjectionChart } from './Charts';
+import { ProjectionChart, MonteCarloFanChart } from './Charts';
 
 interface ProjectionsTabProps {
   accounts: Account[];
@@ -53,6 +57,66 @@ export const ProjectionsTab: React.FC<ProjectionsTabProps> = ({
   const [stepDownPercentage, setStepDownPercentage] = useState<number>(drawdown.stepDownPercentage);
   const [inflationAdjusted, setInflationAdjusted] = useState<boolean>(drawdown.inflationAdjusted);
   const [projectionType, setProjectionType] = useState<ProjectionType>(drawdown.isCouple ? 'COUPLE' : 'INDIVIDUAL_PERSON1');
+
+  // Monte Carlo Simulation state (strictly on-demand, resets on any parameter change)
+  const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | null>(null);
+  const [isSimulating, setIsSimulating] = useState<boolean>(false);
+
+  // Reset simulation whenever ANY option, assumption, or account is changed
+  useEffect(() => {
+    setMonteCarloResult(null);
+  }, [
+    targetIncome,
+    retirementAge1,
+    retirementAge2,
+    strategy,
+    lumpSumOption,
+    stepDownAge,
+    stepDownPercentage,
+    inflationAdjusted,
+    projectionType,
+    accounts,
+    assumptions,
+    drawdown.endAge,
+    person1.birthYear,
+    person2.birthYear
+  ]);
+
+  const handleRunMonteCarlo = () => {
+    setIsSimulating(true);
+    setTimeout(() => {
+      try {
+        const updatedDrawdown: DrawdownPreferences = {
+          targetAnnualIncome: targetIncome,
+          inflationAdjusted,
+          startAge: Math.min(retirementAge1, retirementAge2),
+          endAge: drawdown.endAge,
+          strategy,
+          lumpSumOption,
+          stepDownAge,
+          stepDownPercentage,
+          isCouple: projectionType === 'COUPLE'
+        };
+
+        const result = runMonteCarloSimulation(
+          accounts,
+          assumptions,
+          updatedDrawdown,
+          person1,
+          person2,
+          retirementAge1,
+          retirementAge2,
+          projectionType,
+          500
+        );
+        setMonteCarloResult(result);
+      } catch (err) {
+        console.error('Monte Carlo simulation failed:', err);
+      } finally {
+        setIsSimulating(false);
+      }
+    }, 40);
+  };
 
   // Expanded rows state
   const [expandedYears, setExpandedYears] = useState<Set<number>>(new Set());
@@ -450,6 +514,144 @@ export const ProjectionsTab: React.FC<ProjectionsTabProps> = ({
 
       {/* Projection Chart */}
       <ProjectionChart data={projection.results} retirementAge={retirementAge1} />
+
+      {/* Monte Carlo Longevity Simulation Section */}
+      <div className="card-glass-panel mc-simulation-panel" id="monte-carlo-section">
+        <div className="mc-panel-header">
+          <div className="mc-header-main">
+            <div className="mc-header-icon-box">
+              <Dices size={24} className="text-indigo" />
+            </div>
+            <div>
+              <div className="mc-title-row">
+                <h3 className="text-lg font-bold">Monte Carlo Longevity Stress Test</h3>
+                {monteCarloResult ? (
+                  <span className={`badge-pill ${
+                    monteCarloResult.confidenceRating === 'HIGH' ? 'badge-success' :
+                    monteCarloResult.confidenceRating === 'MODERATE' ? 'badge-info' :
+                    monteCarloResult.confidenceRating === 'CAUTION' ? 'badge-warning' : 'badge-danger'
+                  }`}>
+                    {monteCarloResult.confidenceRating} CONFIDENCE ({monteCarloResult.successRate}% Success)
+                  </span>
+                ) : (
+                  <span className="badge-pill badge-neutral">Awaiting Check</span>
+                )}
+              </div>
+              <p className="text-sm text-muted">
+                Stress-test portfolio survival against 500 randomized sequences of equity/bond volatility and inflation. Runs on-demand against current parameters.
+              </p>
+            </div>
+          </div>
+
+          <div className="mc-actions">
+            <button
+              type="button"
+              id="btn-run-monte-carlo"
+              className={`btn ${monteCarloResult ? 'btn-secondary' : 'btn-primary'} btn-sm flex-row items-center gap-2`}
+              onClick={handleRunMonteCarlo}
+              disabled={isSimulating}
+            >
+              {isSimulating ? (
+                <>
+                  <Activity size={16} className="animate-spin" />
+                  <span>Simulating 500 Trials...</span>
+                </>
+              ) : monteCarloResult ? (
+                <>
+                  <RotateCcw size={16} />
+                  <span>Re-run Simulation</span>
+                </>
+              ) : (
+                <>
+                  <Dices size={16} />
+                  <span>Run Monte Carlo Check</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {!monteCarloResult && (
+          <div className="mc-idle-state">
+            <div className="mc-idle-content">
+              <div className="mc-idle-callout">
+                <p>
+                  Press <strong>Run Monte Carlo Check</strong> to simulate 500 economic market paths against your current parameters.
+                </p>
+                <p className="text-xs text-muted mt-1">
+                  Note: If any parameter or option above is changed, this check resets automatically and waits to be run again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {monteCarloResult && (
+          <div className="mc-results-container">
+            <div className="mc-meta-bar">
+              <span className="text-xs text-muted">
+                Simulated 500 trials at {monteCarloResult.simulatedAt} with current parameters. Changing any parameter or option will reset this check.
+              </span>
+            </div>
+
+            <div className="mc-kpi-grid">
+              <div className={`mc-kpi-card ${
+                monteCarloResult.successRate >= 90 ? 'border-success' :
+                monteCarloResult.successRate >= 75 ? 'border-info' :
+                monteCarloResult.successRate >= 60 ? 'border-warning' : 'border-danger'
+              }`}>
+                <div className="mc-kpi-label">Simulation Success Rate</div>
+                <div className={`mc-kpi-val ${
+                  monteCarloResult.successRate >= 90 ? 'text-emerald' :
+                  monteCarloResult.successRate >= 75 ? 'text-cyan' :
+                  monteCarloResult.successRate >= 60 ? 'text-amber' : 'text-danger'
+                }`}>
+                  {monteCarloResult.successRate}%
+                </div>
+                <div className="mc-kpi-sub">
+                  {monteCarloResult.successfulTrials} of {monteCarloResult.totalTrials} trials survived to age {drawdown.endAge}+
+                </div>
+              </div>
+
+              <div className="mc-kpi-card">
+                <div className="mc-kpi-label">Median Ending Capital (P50)</div>
+                <div className="mc-kpi-val text-indigo">
+                  £{monteCarloResult.medianEndingWealth.toLocaleString('en-GB')}
+                </div>
+                <div className="mc-kpi-sub">Expected median portfolio at age {drawdown.endAge}</div>
+              </div>
+
+              <div className="mc-kpi-card">
+                <div className="mc-kpi-label">Bear Market Floor (P10)</div>
+                <div className="mc-kpi-val text-amber">
+                  £{monteCarloResult.p10EndingWealth.toLocaleString('en-GB')}
+                </div>
+                <div className="mc-kpi-sub">Worst 10% severe sequence-of-returns scenario</div>
+              </div>
+
+              <div className="mc-kpi-card">
+                <div className="mc-kpi-label">Earliest Observed Depletion</div>
+                <div className="mc-kpi-val">
+                  {monteCarloResult.earliestDepletionAge ? `Age ${monteCarloResult.earliestDepletionAge}` : 'None (0%)'}
+                </div>
+                <div className="mc-kpi-sub">
+                  {monteCarloResult.failedTrials > 0
+                    ? `${monteCarloResult.failedTrials} trials depleted before age ${drawdown.endAge}`
+                    : 'All 500 trials sustained target income!'}
+                </div>
+              </div>
+            </div>
+
+            {/* Fan Chart */}
+            <div className="mc-chart-wrapper mt-4">
+              <MonteCarloFanChart
+                data={monteCarloResult.yearlyPercentiles}
+                retirementAge={projectionType === 'INDIVIDUAL_PERSON2' ? retirementAge2 : retirementAge1}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* DETAILED PER-POT PROJECTION BREAKDOWN TABLE (Core User Request) */}
       <div className="breakdown-table-card">
