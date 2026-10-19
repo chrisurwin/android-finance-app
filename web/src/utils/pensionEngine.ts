@@ -451,7 +451,8 @@ export function calculateProjections(
 
   let remainingLSA1 = MAX_TAX_FREE_LUMP_SUM;
   let remainingLSA2 = MAX_TAX_FREE_LUMP_SUM;
-  let lumpSumTaken = false;
+  let lumpSumTaken1 = false;
+  let lumpSumTaken2 = false;
 
   let totalTaxPaid = 0.0;
   let totalContributionsAccumulated = 0.0;
@@ -531,15 +532,14 @@ export function calculateProjections(
       peakPensionPot = currentTotalPension;
     }
 
-    // 2. Upfront Lump Sum logic
-    if (inRetirement && preferences.lumpSumOption === 'UP_FRONT' && !lumpSumTaken) {
-      lumpSumTaken = true;
-
+    // 2. Upfront Lump Sum logic (per person, once each person is retired and eligible)
+    if (preferences.lumpSumOption === 'UP_FRONT') {
       let lumpSumDeposit1 = 0.0;
       let lumpSumDeposit2 = 0.0;
 
       // Person 1 Upfront 25% lump sum
-      if (projectionType !== 'INDIVIDUAL_PERSON2' && isRetired1) {
+      if (projectionType !== 'INDIVIDUAL_PERSON2' && isRetired1 && age1 >= minPensionAge1 && !lumpSumTaken1) {
+        lumpSumTaken1 = true;
         const person1Pensions = dcPensions.filter(p => p.personId !== 'person-2');
         for (const pension of person1Pensions) {
           if (remainingLSA1 <= 0.0) break;
@@ -558,7 +558,8 @@ export function calculateProjections(
       }
 
       // Person 2 Upfront 25% lump sum
-      if (projectionType !== 'INDIVIDUAL_PERSON1' && isRetired2) {
+      if (projectionType !== 'INDIVIDUAL_PERSON1' && isRetired2 && age2 >= minPensionAge2 && !lumpSumTaken2) {
+        lumpSumTaken2 = true;
         const person2Pensions = dcPensions.filter(p => p.personId === 'person-2');
         for (const pension of person2Pensions) {
           if (remainingLSA2 <= 0.0) break;
